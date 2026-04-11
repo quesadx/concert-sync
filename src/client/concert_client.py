@@ -1,6 +1,7 @@
 import socket
 import json
 
+
 class ConcertClient:
     def __init__(self, host='localhost', port=9999):
         self.host = host
@@ -19,5 +20,25 @@ class ConcertClient:
             "section": section,
             "row": row,
             "col": col
+        }
+        return self.send_request(request)
+
+    def confirm(self, transaction_id):
+        request = {
+            "action": "CONFIRM",
+            "transaction_id": transaction_id,
+        }
+        return self.send_request(request)
+
+    def cancel(self, transaction_id):
+        request = {
+            "action": "CANCEL",
+            "transaction_id": transaction_id,
+        }
+        return self.send_request(request)
+
+    def query(self):
+        request = {
+            "action": "QUERY",
         }
         return self.send_request(request)

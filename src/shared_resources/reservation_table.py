@@ -2,6 +2,8 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
+from src.utils.config import RESERVATION_TTL
+from src.utils.enums import ReservationStatus, Section
 
 @dataclass
 class Reservation:
@@ -10,7 +12,7 @@ class Reservation:
     seats: list
     timestamp_creation: float
     ttl_secs: int
-    state: ReservationState
+    state: ReservationStatus
 
 class ReservationTable:
     def __init__(self):
@@ -27,7 +29,7 @@ class ReservationTable:
                 seats=seats,
                 timestamp_creation=time.time(),
                 ttl_secs=RESERVATION_TTL,
-                state=ReservationState.ACTIVE
+                state=ReservationStatus.ACTIVE
             )
             self.reservations[tx_id] = reservation
             self.cond_var.notify()
@@ -38,7 +40,11 @@ class ReservationTable:
             now = time.time()
             expired = []
             for tx_id, res in self.reservations.items():
-                if (res.state == ReservationState.ACTIVE and
+                if (res.state == ReservationStatus.ACTIVE and
                     now - res.timestamp_creation > res.ttl_secs):
                     expired.append(tx_id)
             return expired
+
+    def get_reservation(self, tx_id):
+        with self.mutex_table:
+            return self.reservations.get(tx_id)

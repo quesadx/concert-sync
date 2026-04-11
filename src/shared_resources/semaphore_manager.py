@@ -1,4 +1,6 @@
 import threading
+from src.utils.config import SECTION_CONFIG
+from src.utils.enums import Section
 
 class SemaphoreManager:
     def __init__(self):
@@ -11,8 +13,12 @@ class SemaphoreManager:
                        SECTION_CONFIG[section]["cols"])
             self.s_sections[section] = threading.Semaphore(capacity)
 
-    def acquire(self, section):
-        self.s_sections[section].acquire()
+    def acquire(self, section, blocking=True):
+        return self.s_sections[section].acquire(blocking=blocking)
 
     def release(self, section):
         self.s_sections[section].release()
+
+    def release_multiple(self, section, count):
+        for _ in range(count):
+            self.s_sections[section].release()

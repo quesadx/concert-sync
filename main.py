@@ -1,3 +1,5 @@
+import time
+
 from src.server.concert_server import ConcertServer
 
 if __name__ == "__main__":
@@ -10,4 +12,4 @@ if __name__ == "__main__":
             time.sleep(1)
     except KeyboardInterrupt:
         print("\nShutting down...")
-        server.running = False
+        server.stop()

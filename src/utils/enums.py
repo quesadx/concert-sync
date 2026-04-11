@@ -15,3 +15,7 @@ class ReservationStatus(Enum):
     CONFIRMED = "CONFIRMED"
     CANCELLED = "CANCELLED"
     EXPIRED = "EXPIRED"
+
+
+# Backward-compatible alias used in earlier code.
+ReservationState = ReservationStatus

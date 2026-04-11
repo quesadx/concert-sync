@@ -1,5 +1,6 @@
 import threading
-from utils.enums import Section, SeatState
+from src.utils.config import SECTION_CONFIG
+from src.utils.enums import Section, SeatState
 
 class SeatMatrix:
     def __init__(self):
@@ -31,3 +32,31 @@ class SeatMatrix:
                 self.seats[section][row][col] = SeatState.RESERVED
                 return True
             return False
+
+    def set_seat_state(self, section, row, col, state):
+        with self.mutex_sections[section]:
+            self.seats[section][row][col] = state
+
+    def get_section_counts(self, section):
+        with self.mutex_sections[section]:
+            total = 0
+            available = 0
+            reserved = 0
+            sold = 0
+
+            for row in self.seats[section]:
+                for seat in row:
+                    total += 1
+                    if seat == SeatState.AVAILABLE:
+                        available += 1
+                    elif seat == SeatState.RESERVED:
+                        reserved += 1
+                    elif seat == SeatState.SOLD:
+                        sold += 1
+
+            return {
+                "total": total,
+                "available": available,
+                "reserved": reserved,
+                "sold": sold,
+            }
