@@ -91,7 +91,7 @@ def validate_action(request: Dict[str, Any]) -> Tuple[bool, Optional[str], Optio
     if not isinstance(action, str):
         return False, f"Field 'action' must be string, got {type(action).__name__}", None
     
-    valid_actions = {"RESERVE", "CONFIRM", "CANCEL", "QUERY"}
+    valid_actions = {"RESERVE", "RESERVE_BATCH", "CONFIRM", "CANCEL", "QUERY"}
     if action not in valid_actions:
         return False, f"Unknown action: {action}. Valid actions: {valid_actions}", action
     
@@ -203,6 +203,92 @@ def validate_cancel_payload(request: Dict[str, Any]) -> Tuple[bool, Optional[str
     return True, None
 
 
+def validate_reserve_batch_payload(request: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+    """
+    Validate RESERVE_BATCH request: seats array with section/row/col for each.
+    
+    Args:
+        request: Parsed JSON dict (must have action="RESERVE_BATCH")
+        
+    Returns:
+        (is_valid, error_message)
+    """
+    # Check seats array
+    if "seats" not in request:
+        return False, "RESERVE_BATCH: Missing required field: seats"
+    
+    seats = request.get("seats")
+    if not isinstance(seats, list):
+        return False, f"RESERVE_BATCH: Field 'seats' must be array, got {type(seats).__name__}"
+    
+    # Batch size: at least 1, at most 10
+    if len(seats) == 0:
+        return False, "RESERVE_BATCH: seats array must contain at least 1 seat"
+    
+    if len(seats) > 10:
+        return False, f"RESERVE_BATCH: seats array must contain at most 10 seats, got {len(seats)}"
+    
+    # Track coordinates to detect duplicates
+    seen_coords = set()
+    
+    for idx, seat in enumerate(seats):
+        if not isinstance(seat, dict):
+            return False, f"RESERVE_BATCH: seats[{idx}] must be object, got {type(seat).__name__}"
+        
+        # Validate section
+        if "section" not in seat:
+            return False, f"RESERVE_BATCH: seats[{idx}] missing required field: section"
+        
+        section_str = seat.get("section")
+        if not isinstance(section_str, str):
+            return False, f"RESERVE_BATCH: seats[{idx}].section must be string, got {type(section_str).__name__}"
+        
+        try:
+            section = Section[section_str]
+        except KeyError:
+            valid_sections = [s.name for s in Section]
+            return False, f"RESERVE_BATCH: seats[{idx}] section '{section_str}' not supported. Valid: {valid_sections}"
+        
+        # Validate row
+        if "row" not in seat:
+            return False, f"RESERVE_BATCH: seats[{idx}] missing required field: row"
+        
+        row = seat.get("row")
+        if not isinstance(row, int) or isinstance(row, bool):
+            return False, f"RESERVE_BATCH: seats[{idx}].row must be integer, got {type(row).__name__}"
+        
+        if row < 0:
+            return False, f"RESERVE_BATCH: seats[{idx}].row must be non-negative, got {row}"
+        
+        # Validate col
+        if "col" not in seat:
+            return False, f"RESERVE_BATCH: seats[{idx}] missing required field: col"
+        
+        col = seat.get("col")
+        if not isinstance(col, int) or isinstance(col, bool):
+            return False, f"RESERVE_BATCH: seats[{idx}].col must be integer, got {type(col).__name__}"
+        
+        if col < 0:
+            return False, f"RESERVE_BATCH: seats[{idx}].col must be non-negative, got {col}"
+        
+        # Check bounds
+        config = SECTION_CONFIG.get(section, {})
+        max_rows = config.get("rows", 0)
+        max_cols = config.get("cols", 0)
+        
+        if row >= max_rows or col >= max_cols:
+            return False, f"RESERVE_BATCH: seats[{idx}] ({row}, {col}) out of bounds for {section_str} ({max_rows}x{max_cols})"
+        
+        # Check for duplicates
+        coord_key = (section_str, row, col)
+        if coord_key in seen_coords:
+            return False, f"RESERVE_BATCH: Duplicate seat coordinate {section_str}({row},{col}) at index {idx}"
+        
+        seen_coords.add(coord_key)
+    
+    return True, None
+
+
 def validate_query_payload(request: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
     """
     Validate QUERY request (minimal: just action required).
@@ -244,6 +330,8 @@ def validate_request(data: str) -> Tuple[bool, Optional[str], Optional[Dict[str,
     # Step 3: Validate action-specific payload
     if action == "RESERVE":
         is_valid, msg = validate_reserve_payload(parsed)
+    elif action == "RESERVE_BATCH":
+        is_valid, msg = validate_reserve_batch_payload(parsed)
     elif action == "CONFIRM":
         is_valid, msg = validate_confirm_payload(parsed)
     elif action == "CANCEL":

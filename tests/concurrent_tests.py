@@ -11,6 +11,7 @@ if str(ROOT_DIR) not in sys.path:
 from src.client.concert_client import ConcertClient
 from src.server.concert_server import ConcertServer
 from src.utils.enums import Section
+from src.utils.config import SECTION_CONFIG
 
 
 ITERATIONS = 50
@@ -30,20 +31,34 @@ def _wait_for_server(host, port, retries=50, wait_seconds=0.1):
 
 
 def _check_invariants(server, query_response):
+    """
+    Verify invariants from QUERY response.
+    
+    Note: QUERY no longer returns "total" field (protocol-contract-v1 compliance).
+    We calculate total implicitly: total = available + reserved + sold.
+    """
     assert query_response["status"] == "SUCCESS"
 
     for section in Section:
         section_stats = query_response["sections"][section.name]
 
-        total = section_stats["total"]
         available = section_stats["available"]
         reserved = section_stats["reserved"]
         sold = section_stats["sold"]
+        
+        # Calculate total implicitly (not in response)
+        total = available + reserved + sold
 
-        assert total == available + reserved + sold, (
-            f"Invariant broken in {section.name}: total mismatch"
+        # Verify accounting invariant
+        config = SECTION_CONFIG.get(section, {})
+        capacity = config.get("rows", 0) * config.get("cols", 0)
+        assert total == capacity, (
+            f"Invariant broken in {section.name}: "
+            f"available({available}) + reserved({reserved}) + sold({sold}) = {total}, "
+            f"expected capacity {capacity}"
         )
 
+        # Verify semaphore consistency (must match available count)
         semaphore_available = server.semaphore_mgr.s_sections[section]._value
         assert semaphore_available == available, (
             f"Invariant broken in {section.name}: semaphore={semaphore_available},"
