@@ -109,7 +109,15 @@ Resultado de corrida exitosa:
 
 - Concurrent stress test completed
 - Iterations: 50
-- Threads per section: 10
+- Thrundation [!] via 🐍 v3.14.3 via ❄️  impure (nix-shell-env) took 3s 
+❯ ls
+.  ..  .direnv  docs  .envrc  flake.lock  flake.nix  .git  .gitignore  main.py  src  tests
+
+concert-sync on  chore/project-foundation [!] via 🐍 v3.14.3 via ❄️  impure (nix-shell-env) 
+❯ python3
+python3            python3.14         python3.14-config  python3-config     
+
+eads per section: 10
 - Successful reservations: 150
 - Confirmed transactions: 30
 - Cancelled transactions: 120

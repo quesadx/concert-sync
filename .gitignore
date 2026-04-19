@@ -211,3 +211,4 @@ token-optimizer.md
 
 # Direnv
 .direnv/
+.direnv
