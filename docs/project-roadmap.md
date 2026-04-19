@@ -44,17 +44,17 @@ Se considera 100% completado solo cuando se cumple todo lo siguiente:
 
 ### Bloque A - Cierre formal de alcance y trazabilidad (Fase I)
 
-1. chore/roadmap-trazabilidad-rubrica
+1. chore/roadmap-traceability-rubric
    - Objetivo: matriz oficial de requisitos extraidos de [docs/proyecto-programado.md](docs/proyecto-programado.md).
    - Incluye: requisito, fuente, estado actual, evidencia existente, brecha.
    - Done: matriz completa en documento versionado.
 
-2. chore/fase1-documento-formal-final
+2. chore/phase1-formal-document-final
    - Objetivo: dejar [docs/avance-1.md](docs/avance-1.md) listo para rubrica 90-100.
    - Incluye: correcciones de consistencia terminologica y tecnica.
    - Done: Fase I cerrada sin vacios conceptuales.
 
-3. chore/fase1-diagramas-formales
+3. chore/phase1-formal-diagrams
    - Objetivo: completar/actualizar diagramas de arquitectura y recursos compartidos.
    - Incluye: diagrama cliente-servidor + diagrama de recursos y protecciones.
    - Done: artefactos graficos listos para entrega.
@@ -66,7 +66,7 @@ Se considera 100% completado solo cuando se cumple todo lo siguiente:
    - Incluye: validaciones de payload y errores deterministas.
    - Done: contrato versionado y respetado por cliente/servidor.
 
-5. feature/query-disponibilidad-por-zona
+5. feature/query-availability-by-zone
    - Objetivo: asegurar consulta de disponibilidad por zona (requisito funcional explicito).
    - Incluye: respuesta por zona, totales y estados.
    - Done: consultas consistentes bajo concurrencia.
@@ -123,7 +123,7 @@ Se considera 100% completado solo cuando se cumple todo lo siguiente:
     - Incluye: conflictos cruzados de zonas y consistencia por zona.
     - Done: semaforo_disponible == available por zona.
 
-16. chore/fase2-evidence-pack
+16. chore/phase2-evidence-pack
     - Objetivo: empaquetar evidencia formal de Fase II.
     - Incluye: logs, resumen de corridas, comando de reproduccion y resultados.
     - Done: dossier de evidencia listo para evaluacion.
@@ -150,7 +150,7 @@ Se considera 100% completado solo cuando se cumple todo lo siguiente:
     - Incluye: rondas repetidas, metricas, errores y recuperacion.
     - Done: integridad mantenida bajo multiples conexiones.
 
-20. chore/fase3-defense-artifacts
+20. chore/phase3-defense-artifacts
     - Objetivo: cierre de artefactos de Fase III.
     - Incluye: instrucciones de conexion, reporte de carga, presentacion tecnica.
     - Done: material listo para defensa sin trabajo adicional.
