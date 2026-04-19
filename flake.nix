@@ -15,12 +15,10 @@
       devShells.${system}.default = pkgs.mkShell {
         buildInputs = with pkgs; [
           python314
-          python314Packages.pip
-          python314Packages.virtualenv
+          uv
           python314Packages.pytest
           python314Packages.black
           python314Packages.flake8
-          # python312Packages.python-lsp-server
         ];
       };
     };
