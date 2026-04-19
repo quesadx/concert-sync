@@ -4,12 +4,12 @@ from src.server.concert_server import ConcertServer
 
 if __name__ == "__main__":
     server = ConcertServer(port=9999)
-    print("Starting ConcertSync Server...")
+    print("Starting ConcertSync Server on port 9999")
     server.start()
 
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        print("\nShutting down...")
+        print("\nShutting down ConcertSync Server")
         server.stop()

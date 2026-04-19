@@ -1,0 +1,11 @@
+[project]
+name = "concert-sync"
+version = "0.1.0"
+description = "Python threaded-concurrency project"
+
+[dependency-groups]
+dev = [
+    "black>=26.3.1",
+    "flake8>=7.3.0",
+    "pytest>=9.0.3",
+]
