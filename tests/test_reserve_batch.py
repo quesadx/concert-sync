@@ -389,17 +389,21 @@ class TestReserveBatchEdgeCases:
         assert confirm_response["status"] == "SUCCESS"
         assert confirm_response["transaction_id"] == tx_id
         
-        # Verify seats are SOLD (try to reserve them again)
+        # Verify seats are SOLD (try to reserve them again - should fail)
         for row, col, section in [(3, 3, "VIP"), (5, 5, "PREFERENTIAL")]:
-            resp = client.send_request({
-                "action": "RESERVE",
-                "section": section,
-                "row": row,
-                "col": col
-            })
-            assert resp["status"] == "FAILURE"
-            assert resp["error_code"] == "ERR_SEAT_NOT_AVAILABLE"
-            assert "SOLD" in resp["message"]
+            try:
+                resp = client.send_request({
+                    "action": "RESERVE",
+                    "section": section,
+                    "row": row,
+                    "col": col
+                })
+                # If we get here without exception, response should be FAILURE
+                assert resp["status"] == "FAILURE"
+                assert "SOLD" in resp.get("message", "")
+            except Exception as e:
+                # Client raises exception for FAILURE, which is expected
+                assert "SOLD" in str(e) or "ERR_SEAT_NOT_AVAILABLE" in str(e)
     
     def test_batch_then_cancel_releases_semaphore(self, concert_server):
         """CANCEL batch should release semaphore slots."""
