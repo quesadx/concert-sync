@@ -44,9 +44,10 @@ The ConcertSync server uses **JSON over TCP** for client-server communication.
 
 | Action | Semantics | Idempotent |
 |--------|-----------|-----------|
-| `RESERVE` | Reserve a specific seat in a section; returns transient `transaction_id` with TTL | No (creates new tx each time) |
-| `CONFIRM` | Convert active reservation to permanent SOLD state | Yes (second attempt on same tx_id → success w/ same result) |
-| `CANCEL` | Release reservation and revert seat to AVAILABLE | Yes (second attempt on already-cancelled tx_id → idempotent) |
+| `RESERVE` | Reserve a single specific seat in a section; returns transient `transaction_id` with TTL | No (creates new tx each time) |
+| `RESERVE_BATCH` | Reserve multiple specific seats (same or different sections) atomically; returns single `transaction_id` covering all seats | No (creates new tx each time) |
+| `CONFIRM` | Convert active reservation to permanent SOLD state (applies to all seats in tx) | Yes (second attempt on same tx_id → success w/ same result) |
+| `CANCEL` | Release reservation and revert all seats to AVAILABLE (applies to all seats in tx) | Yes (second attempt on already-cancelled tx_id → idempotent) |
 | `QUERY` | Fetch current seat availability counts by section | Yes (no state change) |
 
 ---
@@ -77,6 +78,47 @@ The ConcertSync server uses **JSON over TCP** for client-server communication.
 - `VIP`: 10 rows × 20 cols = 200 seats
 - `PREFERENTIAL`: 15 rows × 20 cols = 300 seats
 - `GENERAL`: 20 rows × 20 cols = 400 seats
+
+---
+
+### RESERVE_BATCH Request
+
+```json
+{
+  "action": "RESERVE_BATCH",
+  "seats": [
+    {"section": "<SECTION_NAME>", "row": <int>, "col": <int>},
+    {"section": "<SECTION_NAME>", "row": <int>, "col": <int>}
+  ]
+}
+```
+
+**Field Definitions:**
+
+| Field | Type | Required | Constraints | Example |
+|-------|------|----------|-------------|---------|
+| `action` | string | ✅ | Literal: `"RESERVE_BATCH"` | `"RESERVE_BATCH"` |
+| `seats` | array | ✅ | Array of seat objects; at least 1, at most 10 | `[{...}]` |
+| `seats[i].section` | string | ✅ | Enum: `"VIP"`, `"PREFERENTIAL"`, `"GENERAL"` | `"VIP"` |
+| `seats[i].row` | integer | ✅ | 0 ≤ row < max_rows_in_section | `5` |
+| `seats[i].col` | integer | ✅ | 0 ≤ col < max_cols_in_section | `10` |
+
+**Additional Constraints:**
+
+- **Batch size:** 1 ≤ seats.length ≤ 10
+- **Uniqueness:** No duplicate (section, row, col) tuples allowed
+- **Atomicity:** All seats reserved together or none; no partial success
+
+**Validation Errors:**
+
+| Condition | Error Code | Status |
+|-----------|-----------|--------|
+| seats array empty or > 10 | `ERR_INVALID_PAYLOAD` | ERROR |
+| Duplicate seat coordinates | `ERR_INVALID_PAYLOAD` | ERROR |
+| Any seat has invalid section | `ERR_INVALID_SECTION` | ERROR |
+| Any seat has invalid coordinates (negative, out-of-bounds) | `ERR_INVALID_COORDINATES` or `ERR_SEAT_OUT_OF_BOUNDS` | ERROR |
+| Any seat already unavailable | `ERR_SEAT_NOT_AVAILABLE` | FAILURE |
+| Any section at capacity (semaphore) | `ERR_NO_CAPACITY` | FAILURE |
 
 ---
 
@@ -154,6 +196,37 @@ The ConcertSync server uses **JSON over TCP** for client-server communication.
 
 ---
 
+### SUCCESS Response (RESERVE_BATCH)
+
+```json
+{
+  "status": "SUCCESS",
+  "transaction_id": "<tx_id>",
+  "reserved_seats": [
+    {"section": "VIP", "row": 0, "col": 0},
+    {"section": "VIP", "row": 0, "col": 1},
+    {"section": "PREFERENTIAL", "row": 5, "col": 10}
+  ],
+  "ttl": <int>
+}
+```
+
+**Field Definitions:**
+
+| Field | Type | Presence | Semantics |
+|-------|------|----------|-----------|
+| `status` | string | Always | Literal: `"SUCCESS"` |
+| `transaction_id` | string | Always | Unique identifier for batch reservation; use for CONFIRM/CANCEL (applies to all seats in batch) |
+| `reserved_seats` | array | Always | Echo of all reserved seats as requested; facilitates transaction logging |
+| `ttl` | integer | Always | Seconds until batch reservation expires (from config `RESERVATION_TTL`); typically 300; applies to entire batch |
+
+**Atomicity Guarantee:**
+- All seats transition from AVAILABLE → RESERVED simultaneously
+- Single transaction_id covers entire batch
+- CONFIRM/CANCEL apply to all seats in batch
+
+---
+
 ### SUCCESS Response (CONFIRM)
 
 ```json
@@ -227,6 +300,11 @@ The ConcertSync server uses **JSON over TCP** for client-server communication.
 **Invariants:**
 - `available + reserved + sold = total_capacity_for_section`
 - All counts ≥ 0
+
+**Atomicity & Idempotence:**
+- QUERY is **atomic**: returns a consistent snapshot despite concurrent modifications
+- QUERY is **idempotent**: safe to retry on failure; multiple calls without modifications return identical results
+- No transient states exposed: counts reflect atomic moment-in-time state
 
 ---
 
@@ -507,6 +585,87 @@ Error codes follow pattern: `ERR_<CATEGORY>_<REASON>` or `INTERNAL_ERROR`
       "sold": 5
     }
   }
+}
+```
+
+---
+
+### Example 7: Reserve multiple seats (SUCCESS)
+
+**Client Request:**
+```json
+{
+  "action": "RESERVE_BATCH",
+  "seats": [
+    {"section": "VIP", "row": 0, "col": 0},
+    {"section": "VIP", "row": 0, "col": 1},
+    {"section": "PREFERENTIAL", "row": 5, "col": 10}
+  ]
+}
+```
+
+**Server Response:**
+```json
+{
+  "status": "SUCCESS",
+  "transaction_id": "tx_1681203600_002",
+  "reserved_seats": [
+    {"section": "VIP", "row": 0, "col": 0},
+    {"section": "VIP", "row": 0, "col": 1},
+    {"section": "PREFERENTIAL", "row": 5, "col": 10}
+  ],
+  "ttl": 300
+}
+```
+
+---
+
+### Example 8: Reserve batch with unavailable seat (FAILURE - No Partial Reserve)
+
+**Client Request:**
+```json
+{
+  "action": "RESERVE_BATCH",
+  "seats": [
+    {"section": "VIP", "row": 0, "col": 0},
+    {"section": "VIP", "row": 0, "col": 2},
+    {"section": "PREFERENTIAL", "row": 5, "col": 10}
+  ]
+}
+```
+
+**Server Response (assuming VIP(0,2) is already SOLD):**
+```json
+{
+  "status": "FAILURE",
+  "error_code": "ERR_SEAT_NOT_AVAILABLE",
+  "message": "Seat VIP(0,2) is in SOLD state, not available for reservation. Batch reservation aborted (zero seats reserved)."
+}
+```
+
+**Note:** Even if VIP(0,0) and PREFERENTIAL(5,10) were available, they are NOT reserved because another seat in the batch is unavailable. This is atomic behavior.
+
+---
+
+### Example 9: Reserve batch with duplicate coordinates (ERROR)
+
+**Client Request:**
+```json
+{
+  "action": "RESERVE_BATCH",
+  "seats": [
+    {"section": "VIP", "row": 0, "col": 0},
+    {"section": "VIP", "row": 0, "col": 0}
+  ]
+}
+```
+
+**Server Response:**
+```json
+{
+  "status": "ERROR",
+  "error_code": "ERR_INVALID_PAYLOAD",
+  "message": "Batch contains duplicate seat coordinates: VIP(0,0) appears multiple times"
 }
 ```
 

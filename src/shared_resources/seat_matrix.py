@@ -38,25 +38,27 @@ class SeatMatrix:
             self.seats[section][row][col] = state
 
     def get_section_counts(self, section):
-        with self.mutex_sections[section]:
-            total = 0
-            available = 0
-            reserved = 0
-            sold = 0
+        """
+        Get seat counts for a section (MUST be called with section mutex held).
+        
+        Returns only available/reserved/sold counts (no total).
+        Caller is responsible for ensuring atomicity via mutex.
+        """
+        available = 0
+        reserved = 0
+        sold = 0
 
-            for row in self.seats[section]:
-                for seat in row:
-                    total += 1
-                    if seat == SeatState.AVAILABLE:
-                        available += 1
-                    elif seat == SeatState.RESERVED:
-                        reserved += 1
-                    elif seat == SeatState.SOLD:
-                        sold += 1
+        for row in self.seats[section]:
+            for seat in row:
+                if seat == SeatState.AVAILABLE:
+                    available += 1
+                elif seat == SeatState.RESERVED:
+                    reserved += 1
+                elif seat == SeatState.SOLD:
+                    sold += 1
 
-            return {
-                "total": total,
-                "available": available,
-                "reserved": reserved,
-                "sold": sold,
-            }
+        return {
+            "available": available,
+            "reserved": reserved,
+            "sold": sold,
+        }
