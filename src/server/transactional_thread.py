@@ -57,6 +57,8 @@ class TransactionalThread(threading.Thread):
                 response = self.handle_cancel(request)
             elif action == "QUERY":
                 response = self.handle_query(request)
+            elif action == "QUERY_SEAT_MAP":
+                response = self.handle_query_seat_map(request)
             else:
                 response = error_invalid_action(action)
 
@@ -430,6 +432,37 @@ class TransactionalThread(threading.Thread):
         
         except Exception as e:
             self.server.global_log.append("ERROR", f"QUERY failed: {str(e)}")
+            return error_internal(str(e))
+
+    def handle_query_seat_map(self, request):
+        """
+        Query full seat-state matrix by section for visualization clients.
+
+        Response shape:
+        {
+            "status": "SUCCESS",
+            "seat_map": {
+                "VIP": [["AVAILABLE", ...], ...],
+                "PREFERENTIAL": [[...]],
+                "GENERAL": [[...]]
+            }
+        }
+        """
+        try:
+            seat_map = {}
+
+            with self.server.mutex_manager.sections(list(Section)):
+                for section in Section:
+                    rows = self.server.seat_matrix.seats[section]
+                    serialized_rows = []
+                    for row in rows:
+                        serialized_rows.append([seat.value for seat in row])
+                    seat_map[section.name] = serialized_rows
+
+            return build_success_response(seat_map=seat_map)
+
+        except Exception as e:
+            self.server.global_log.append("ERROR", f"QUERY_SEAT_MAP failed: {str(e)}")
             return error_internal(str(e))
     
     def _count_section_seats(self, section):

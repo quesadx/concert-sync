@@ -16,6 +16,7 @@ ConcertSync is a small Python project implementing a TCP-based seat reservation 
 - `src/shared_resources/global_log.py`: thread-safe event logging.
 - `src/utils/enums.py`: enums for seat states, sections, and reservation statuses.
 - `src/utils/config.py`: section dimensions, reservation TTL, and server port.
+- `frontend_tui/`: Textual-based terminal frontend (English UI) connected to the same client-server protocol.
 
 ## How It Works
 
@@ -38,6 +39,18 @@ ConcertSync is a small Python project implementing a TCP-based seat reservation 
 
 ```bash
 python main.py
+```
+
+## Running the Textual TUI
+
+```bash
+nix develop -c python -m frontend_tui
+```
+
+If you are not using Nix:
+
+```bash
+python -m frontend_tui
 ```
 
 ## Using the Client
@@ -63,5 +76,5 @@ Example request format:
 ## Notes
 
 - The server is designed for learning and concurrency experimentation rather than production use.
-- `src/synchronization/lock_hierarcky.py` is currently unused.
+- `src/synchronization/lock_hierarcky.py` and `src/synchronization/mutex_manager.py` are part of the lock orchestration used by transactional operations.
 - Logs are written to `logs/system.log`.

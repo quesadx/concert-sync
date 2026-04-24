@@ -1,0 +1,115 @@
+Screen {
+    layout: vertical;
+}
+
+#main-layout {
+    layout: horizontal;
+    height: 1fr;
+}
+
+#controls-panel {
+    width: 42;
+    min-width: 40;
+    border: round #3b4a64;
+    background: #0f1722;
+    padding: 1;
+    overflow-y: auto;
+}
+
+#dashboard-panel {
+    width: 1fr;
+    border: round #2d6a7e;
+    background: #10171f;
+    padding: 1;
+    overflow-y: auto;
+}
+
+.panel-title {
+    text-style: bold;
+    color: #9ad4d6;
+    margin-top: 1;
+}
+
+Input,
+Select,
+Button {
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#connection-row,
+#seat-row,
+#tx-row,
+#quick-row,
+#log-row {
+    layout: horizontal;
+    height: auto;
+}
+
+#host-input {
+    width: 64%;
+}
+
+#port-input {
+    width: 34%;
+    margin-left: 1;
+}
+
+#row-input,
+#col-input {
+    width: 49%;
+}
+
+#col-input {
+    margin-left: 1;
+}
+
+#confirm-btn,
+#cancel-btn,
+#query-btn,
+#apply-log-btn {
+    width: 49%;
+}
+
+#cancel-btn,
+#apply-log-btn {
+    margin-left: 1;
+}
+
+#section-table {
+    height: 9;
+    margin-top: 1;
+}
+
+#session-table {
+    height: 13;
+    margin-top: 1;
+}
+
+#seat-map-view {
+    border: round #4f6f8f;
+    background: #0b1220;
+    padding: 1;
+    margin-top: 1;
+    height: 28;
+    overflow-y: auto;
+}
+
+#request-chart,
+#thread-chart {
+    border: round #4f6f8f;
+    background: #0b1220;
+    padding: 1;
+    margin-top: 1;
+}
+
+#event-log {
+    height: 14;
+    border: round #4f6f8f;
+    margin-top: 1;
+}
+
+#status-line,
+#connection-status {
+    color: #d8e6f5;
+}

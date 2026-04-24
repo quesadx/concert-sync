@@ -182,7 +182,7 @@ def error_invalid_action(action: str) -> Dict[str, Any]:
     from src.utils.protocol_validator import ErrorCode
     return build_error_response(
         ErrorCode.INVALID_ACTION,
-        f"Unknown action: {action}. Valid: RESERVE, CONFIRM, CANCEL, QUERY"
+        f"Unknown action: {action}. Valid: RESERVE, RESERVE_BATCH, CONFIRM, CANCEL, QUERY, QUERY_SEAT_MAP"
     )
 
 
