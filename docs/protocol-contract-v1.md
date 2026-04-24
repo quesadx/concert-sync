@@ -75,8 +75,8 @@ The ConcertSync server uses **JSON over TCP** for client-server communication.
 | `col` | integer | ✅ | 0 ≤ col < max_cols_in_section | `10` |
 
 **Capacity per Section** (from `src/utils/config.py`):
-- `VIP`: 10 rows × 20 cols = 200 seats
-- `PREFERENTIAL`: 15 rows × 20 cols = 300 seats
+- `VIP`: 5 rows x 10 cols = 50 seats
+- `PREFERENTIAL`: 10 rows x 15 cols = 150 seats
 - `GENERAL`: 20 rows × 20 cols = 400 seats
 
 ---

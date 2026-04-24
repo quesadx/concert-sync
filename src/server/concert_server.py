@@ -6,6 +6,7 @@ from src.shared_resources.global_log import GlobalLog
 from src.shared_resources.reservation_table import ReservationTable
 from src.shared_resources.seat_matrix import SeatMatrix
 from src.shared_resources.semaphore_manager import SemaphoreManager
+from src.synchronization.mutex_manager import MutexManager
 from src.utils.config import SERVER_PORT
 
 
@@ -17,6 +18,7 @@ class ConcertServer:
         self.semaphore_mgr = SemaphoreManager()
         self.reservation_table = ReservationTable()
         self.global_log = GlobalLog()
+        self.mutex_manager = MutexManager(self.seat_matrix, self.reservation_table)
 
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
