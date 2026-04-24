@@ -110,6 +110,13 @@ class TestActionValidation:
         assert is_valid is True
         assert action == "QUERY"
 
+    def test_valid_action_query_seat_map(self):
+        """QUERY_SEAT_MAP is valid action."""
+        request = {"action": "QUERY_SEAT_MAP"}
+        is_valid, msg, action = validate_action(request)
+        assert is_valid is True
+        assert action == "QUERY_SEAT_MAP"
+
     def test_missing_action(self):
         """Missing action field should fail."""
         request = {}
@@ -339,6 +346,13 @@ class TestCoordinatedRequestValidation:
         is_valid, msg, request = validate_request(data)
         assert is_valid is False
         assert request is None
+
+    def test_valid_query_seat_map_request(self):
+        """Valid QUERY_SEAT_MAP request end-to-end."""
+        data = '{"action": "QUERY_SEAT_MAP"}'
+        is_valid, msg, request = validate_request(data)
+        assert is_valid is True
+        assert request == {"action": "QUERY_SEAT_MAP"}
 
 
 # ============================================================================

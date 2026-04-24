@@ -91,7 +91,7 @@ def validate_action(request: Dict[str, Any]) -> Tuple[bool, Optional[str], Optio
     if not isinstance(action, str):
         return False, f"Field 'action' must be string, got {type(action).__name__}", None
     
-    valid_actions = {"RESERVE", "RESERVE_BATCH", "CONFIRM", "CANCEL", "QUERY"}
+    valid_actions = {"RESERVE", "RESERVE_BATCH", "CONFIRM", "CANCEL", "QUERY", "QUERY_SEAT_MAP"}
     if action not in valid_actions:
         return False, f"Unknown action: {action}. Valid actions: {valid_actions}", action
     
@@ -303,6 +303,20 @@ def validate_query_payload(request: Dict[str, Any]) -> Tuple[bool, Optional[str]
     return True, None
 
 
+def validate_query_seat_map_payload(request: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+    """
+    Validate QUERY_SEAT_MAP request (minimal: just action required).
+
+    Args:
+        request: Parsed JSON dict (must have action="QUERY_SEAT_MAP")
+
+    Returns:
+        (is_valid, error_message)
+    """
+    # QUERY_SEAT_MAP has no additional fields required beyond action.
+    return True, None
+
+
 # ============================================================================
 # COORDINATED VALIDATION FLOW
 # ============================================================================
@@ -338,6 +352,8 @@ def validate_request(data: str) -> Tuple[bool, Optional[str], Optional[Dict[str,
         is_valid, msg = validate_cancel_payload(parsed)
     elif action == "QUERY":
         is_valid, msg = validate_query_payload(parsed)
+    elif action == "QUERY_SEAT_MAP":
+        is_valid, msg = validate_query_seat_map_payload(parsed)
     
     if not is_valid:
         return False, msg, None

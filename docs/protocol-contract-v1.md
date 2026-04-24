@@ -33,7 +33,7 @@ The ConcertSync server uses **JSON over TCP** for client-server communication.
 1. **Deterministic Error Codes:** Every failure/error response includes a unique `error_code` identifying the problem
 2. **Status Triality:** Responses always have `status` = one of: `"SUCCESS"`, `"FAILURE"`, `"ERROR"`
 3. **Validation Dual-Layer:** Client validates before sending; Server validates on receipt
-4. **Atomicity by Action:** Each action (RESERVE, CONFIRM, CANCEL, QUERY) is atomic at the server
+4. **Atomicity by Action:** Each action (RESERVE, CONFIRM, CANCEL, QUERY, QUERY_SEAT_MAP) is atomic at the server
 5. **Transaction Context:** RESERVE returns `transaction_id`; CONFIRM/CANCEL reference that ID
 
 ---
@@ -49,6 +49,7 @@ The ConcertSync server uses **JSON over TCP** for client-server communication.
 | `CONFIRM` | Convert active reservation to permanent SOLD state (applies to all seats in tx) | Yes (second attempt on same tx_id → success w/ same result) |
 | `CANCEL` | Release reservation and revert all seats to AVAILABLE (applies to all seats in tx) | Yes (second attempt on already-cancelled tx_id → idempotent) |
 | `QUERY` | Fetch current seat availability counts by section | Yes (no state change) |
+| `QUERY_SEAT_MAP` | Fetch full seat-state matrix by section (AVAILABLE/RESERVED/SOLD) | Yes (no state change) |
 
 ---
 
@@ -171,6 +172,22 @@ The ConcertSync server uses **JSON over TCP** for client-server communication.
 | Field | Type | Required | Constraints | Example |
 |-------|------|----------|-------------|---------|
 | `action` | string | ✅ | Literal: `"QUERY"` | `"QUERY"` |
+
+---
+
+### QUERY_SEAT_MAP Request
+
+```json
+{
+  "action": "QUERY_SEAT_MAP"
+}
+```
+
+**Field Definitions:**
+
+| Field | Type | Required | Constraints | Example |
+|-------|------|----------|-------------|---------|
+| `action` | string | ✅ | Literal: `"QUERY_SEAT_MAP"` | `"QUERY_SEAT_MAP"` |
 
 ---
 
@@ -305,6 +322,29 @@ The ConcertSync server uses **JSON over TCP** for client-server communication.
 - QUERY is **atomic**: returns a consistent snapshot despite concurrent modifications
 - QUERY is **idempotent**: safe to retry on failure; multiple calls without modifications return identical results
 - No transient states exposed: counts reflect atomic moment-in-time state
+
+---
+
+### SUCCESS Response (QUERY_SEAT_MAP)
+
+```json
+{
+  "status": "SUCCESS",
+  "seat_map": {
+    "VIP": [["AVAILABLE", "RESERVED"], ["SOLD", "AVAILABLE"]],
+    "PREFERENTIAL": [["AVAILABLE", "AVAILABLE"]],
+    "GENERAL": [["AVAILABLE", "AVAILABLE"]]
+  }
+}
+```
+
+**Field Definitions:**
+
+| Path | Type | Semantics |
+|------|------|-----------|
+| `status` | string | Literal: `"SUCCESS"` |
+| `seat_map[section_name]` | array[row][col] | Complete seat-state grid for each section |
+| `seat_map[section_name][r][c]` | string | One of: `"AVAILABLE"`, `"RESERVED"`, `"SOLD"` |
 
 ---
 

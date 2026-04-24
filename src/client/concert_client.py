@@ -89,7 +89,14 @@ class ConcertClient:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect((self.host, self.port))
                 s.send(json.dumps(request).encode())
-                response_data = s.recv(4096).decode()
+                chunks = []
+                while True:
+                    chunk = s.recv(4096)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+
+                response_data = b"".join(chunks).decode()
                 
                 try:
                     response = json.loads(response_data)
@@ -242,5 +249,22 @@ class ConcertClient:
             "action": "QUERY",
         }
         
+        response = self.send_request(request)
+        return response
+
+    def query_seat_map(self):
+        """
+        Query full seat matrix by section.
+
+        Returns:
+            Response dict with seat_map payload
+
+        Raises:
+            ServerError: If server error occurs
+        """
+        request = {
+            "action": "QUERY_SEAT_MAP",
+        }
+
         response = self.send_request(request)
         return response
