@@ -100,7 +100,12 @@ Button {
     margin-top: 1;
 }
 
-#seat-map-view {
+#seat-map-legend {
+    color: #b9cbe0;
+    margin-top: 1;
+}
+
+#seat-map-table {
     border: round #5a8f9f;
     background: #0b1220;
     padding: 1;
@@ -110,7 +115,7 @@ Button {
     color: #e0f0ff;
 }
 
-#seat-map-view:hover {
+#seat-map-table:hover {
     border: round #7aafbf;
     background: #0d1428;
 }

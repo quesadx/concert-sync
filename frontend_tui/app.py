@@ -22,37 +22,6 @@ SECTION_OPTIONS = [
 ]
 
 
-class ClickableSeatMap(Static):
-    """Custom Static widget that handles seat map clicks."""
-    
-    DEFAULT_CSS = """
-    ClickableSeatMap {
-        border: round #5a8f9f;
-        background: #0b1220;
-        padding: 1;
-        color: #e0f0ff;
-        height: 1fr;
-        overflow-y: auto;
-    }
-    ClickableSeatMap:hover {
-        border: round #7aafbf;
-        background: #0d1428;
-    }
-    """
-    
-    def __init__(self, app_instance, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.app_instance = app_instance
-    
-    def render(self) -> str:
-        """Return the rendered seat map content."""
-        return self.app_instance._get_current_seat_map_content()
-    
-    def on_click(self, event) -> None:
-        """Handle click events on the seat map."""
-        self.app_instance._on_seat_map_click(event)
-
-
 @dataclass
 class TrackedSession:
     transaction_id: str
@@ -197,7 +166,8 @@ class ConcertTextualApp(App):
                     id="map-section-select",
                     allow_blank=False,
                 )
-                yield ClickableSeatMap(self, "", id="seat-map-view")
+                yield Static("A=AVAILABLE  R=RESERVED  S=SOLD  (click a cell)", id="seat-map-legend")
+                yield DataTable(id="seat-map-table")
 
                 yield Static("Tracked transactions (TTL)", classes="panel-title")
                 yield DataTable(id="session-table")
@@ -219,6 +189,9 @@ class ConcertTextualApp(App):
         session_table = self.query_one("#session-table", DataTable)
         session_table.add_columns("Transaction", "Type", "State", "TTL", "Seats")
 
+        seat_map_table = self.query_one("#seat-map-table", DataTable)
+        seat_map_table.cursor_type = "cell"
+
         self.set_interval(1.0, self._refresh_every_second)
         self._render_section_table()
         self._render_seat_map()
@@ -228,87 +201,34 @@ class ConcertTextualApp(App):
     def action_manual_refresh(self) -> None:
         self._refresh_query(silent=False)
 
-    def _on_seat_map_click(self, event) -> None:
-        """Handle clicks on seat map to auto-fill row/col fields."""
+    def on_data_table_cell_selected(self, event: DataTable.CellSelected) -> None:
+        """Handle seat selection from the visual seat table."""
+        if event.data_table.id != "seat-map-table":
+            return
+
         try:
-            seat_map = self.query_one("#seat-map-view", Static)
-            content = seat_map.render_str
-            if not content:
+            grid = self.seat_map_snapshot.get(self.selected_map_section, [])
+            if not grid:
                 return
-            
-            lines = content.split("\n")
-            if event.y >= len(lines):
+
+            row_idx = event.coordinate.row
+            col_idx = event.coordinate.column
+            if row_idx < 0 or row_idx >= len(grid) or col_idx < 0 or col_idx >= len(grid[row_idx]):
                 return
-            
-            line = lines[event.y]
-            
-            # Check if this is a data line (format: "00 | [colors]seat seat seat...")
-            if not "|" in line or len(line) < 5:
-                return
-            
-            # Extract row number (first 2 chars before the |)
-            row_part = line[:2].strip()
-            if not row_part.isdigit():
-                return
-            
-            row_idx = int(row_part)
-            
-            # Find the pipe separator
-            pipe_idx = line.index("|")
-            
-            # Everything after the pipe contains the seats with markup
-            seat_content = line[pipe_idx + 1:].strip()
-            
-            # Count actual seat symbols (·, R, X, ?) by removing markup
-            # Markup looks like [color]symbol[/]
-            seat_symbols = []
-            i = 0
-            while i < len(seat_content):
-                if seat_content[i] == "[":
-                    # Skip markup, find the closing ]
-                    close = seat_content.find("]", i)
-                    if close != -1:
-                        i = close + 1
-                    else:
-                        i += 1
-                elif seat_content[i] in "·RX?":
-                    seat_symbols.append((i, seat_content[i]))
-                    i += 1
-                else:
-                    i += 1
-            
-            # Determine which seat was clicked based on character position
-            # event.x is the column in the rendered text
-            # We need to find which seat symbol this corresponds to
-            
-            col_idx = None
-            for seat_num, (char_pos, symbol) in enumerate(seat_symbols):
-                # Approximate: each seat takes ~2 chars on average due to spacing
-                # Check if click is near this seat
-                if char_pos <= event.x < char_pos + 20:  # Generous range
-                    col_idx = seat_num
-                    break
-            
-            # If no exact match, guess based on distance
-            if col_idx is None and seat_symbols:
-                # Find closest seat to the click position
-                closest = min(seat_symbols, key=lambda x: abs(x[0] - event.x))
-                col_idx = seat_symbols.index(closest)
-            
-            if col_idx is not None:
-                # Verify this is a valid seat
-                grid = self.seat_map_snapshot.get(self.selected_map_section, [])
-                if 0 <= row_idx < len(grid) and 0 <= col_idx < len(grid[0]):
-                    # Auto-fill the fields
-                    self.query_one("#row-input", Input).value = str(row_idx)
-                    self.query_one("#col-input", Input).value = str(col_idx)
-                    self.query_one("#section-select", Select).value = self.selected_map_section
-                    
-                    state = grid[row_idx][col_idx]
-                    self._set_status(f"Selected {self.selected_map_section}({row_idx},{col_idx}) - State: {state}")
-                    self._append_event(f"[UI] Clicked seat {self.selected_map_section}({row_idx},{col_idx})")
+
+            self.query_one("#row-input", Input).value = str(row_idx)
+            self.query_one("#col-input", Input).value = str(col_idx)
+            self.query_one("#section-select", Select).value = self.selected_map_section
+
+            state = grid[row_idx][col_idx]
+            self._set_status(
+                f"Selected {self.selected_map_section}({row_idx},{col_idx}) - State: {state}"
+            )
+            self._append_event(
+                f"[UI] Clicked seat {self.selected_map_section}({row_idx},{col_idx})"
+            )
         except Exception as e:
-            self._set_status(f"Click error: {e}")
+            self._set_status(f"Seat select error: {e}")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
@@ -630,65 +550,37 @@ class ConcertTextualApp(App):
             )
 
     @staticmethod
-    def _seat_symbol(state: str) -> str:
+    def _seat_token(state: str) -> str:
         if state == "AVAILABLE":
-            return "[green]·[/]"
+            return "A"
         if state == "RESERVED":
-            return "[yellow]R[/]"
+            return "R"
         if state == "SOLD":
-            return "[red]X[/]"
-        return "[grey50]?[/]"
-
-    def _render_section_grid_with_headers(self, section_name: str, grid: List[List[str]]) -> str:
-        """Render grid with column headers and click hints."""
-        if not grid:
-            return f"[bold]{section_name}[/]: no data"
-
-        section_counts = self.section_snapshot.get(section_name, {})
-        lines = [
-            f"[bold cyan]{section_name}[/]  "
-            f"A={section_counts.get('available', 0)} "
-            f"R={section_counts.get('reserved', 0)} "
-            f"S={section_counts.get('sold', 0)}"
-        ]
-        
-        # Add legend
-        legend = "[dim][green]· Avail  [yellow]R Res  [red]X Sold[/] - Click seat to auto-fill[/]"
-        lines.append(legend)
-        lines.append("")
-        
-        # Add column headers with two-digit numbers
-        num_cols = len(grid[0]) if grid else 0
-        header_line = "    "  # 4 spaces for "00 |"
-        for col_idx in range(num_cols):
-            header_line += f"{col_idx:2d}"
-        lines.append(header_line)
-        
-        # Add rows with seats
-        for row_idx, row in enumerate(grid):
-            cells = []
-            for state in row:
-                cells.append(self._seat_symbol(state))
-            # Each cell is a colored symbol, and we join them with spaces
-            row_line = " ".join(cells)
-            # Row line format: "00 | [colors]seat seat seat..."
-            lines.append(f"{row_idx:02d} | {row_line}")
-
-        return "\n".join(lines)
-
-    def _render_section_grid(self, section_name: str, grid: List[List[str]]) -> str:
-        """Alias for backward compatibility."""
-        return self._render_section_grid_with_headers(section_name, grid)
-
-    def _get_current_seat_map_content(self) -> str:
-        """Build the current seat map content for rendering."""
-        selected_grid = self.seat_map_snapshot.get(self.selected_map_section, [])
-        return self._render_section_grid(self.selected_map_section, selected_grid)
+            return "S"
+        return "?"
 
     def _render_seat_map(self) -> None:
-        """Refresh the seat map widget."""
-        seat_map = self.query_one("#seat-map-view", ClickableSeatMap)
-        seat_map.refresh(recompose=False)
+        """Render seat map as a simple clickable table."""
+        table = self.query_one("#seat-map-table", DataTable)
+        table.clear(columns=True)
+
+        selected_grid = self.seat_map_snapshot.get(self.selected_map_section, [])
+        if not selected_grid:
+            self.query_one("#seat-map-legend", Static).update("No seat map data")
+            return
+
+        num_cols = len(selected_grid[0])
+        table.add_columns(*[str(col_idx) for col_idx in range(num_cols)])
+
+        for row_idx, row in enumerate(selected_grid):
+            table.add_row(
+                *[self._seat_token(state) for state in row],
+                label=f"{row_idx:02d}",
+            )
+
+        self.query_one(
+            "#seat-map-legend", Static
+        ).update("A=AVAILABLE  R=RESERVED  S=SOLD  (click a cell)")
 
     def _latest_session(self, active_only: bool) -> Optional[TrackedSession]:
         filtered = [
