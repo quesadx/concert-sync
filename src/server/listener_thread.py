@@ -1,5 +1,6 @@
 import threading
 import socket
+import time
 
 from src.server.transactional_thread import TransactionalThread
 
@@ -14,7 +15,12 @@ class ListenerThread(threading.Thread):
             try:
                 client_socket, addr = self.server.server_socket.accept()
                 tx_thread = TransactionalThread(self.server, client_socket, addr)
+                tx_thread.name = f"TxThread-{addr[0]}:{addr[1]}-{time.time_ns()}"
                 tx_thread.start()
+                self.server.global_log.append(
+                    "THREAD",
+                    f"Started {tx_thread.name} for client {addr[0]}:{addr[1]}",
+                )
             except socket.timeout:
                 continue
             except OSError:
