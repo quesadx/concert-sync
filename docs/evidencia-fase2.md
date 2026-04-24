@@ -1,6 +1,7 @@
 # Evidencia de Implementacion Concurrente - Fase II
 
 Fecha de corrida: 2026-04-23
+Metodo de corrida principal: script automatizado scripts/run_avance2_evidence.sh
 
 ## 1. Objetivo
 
@@ -46,7 +47,7 @@ Documentar evidencia reproducible para los criterios de Fase II:
 
 Resultado:
 
-1. 125 passed in 50.34s
+1. 125 passed in 55.26s
 
 ### 3.2 Stress concurrente
 
@@ -68,12 +69,12 @@ Salida:
 
 Resumen:
 
-1. 302 logs/system.log
+1. 2004 artifacts/fase2/20260423-224829/system.log
 2. 150 [RESERVE]
 3. 30 [CONFIRM]
 4. 120 [CANCEL]
 5. 2 [SERVER]
-6. N [THREAD] (creacion dinamica de hilos por conexion)
+6. 1702 [THREAD] (creacion dinamica de hilos por conexion)
 
 ### 3.4 TTL y liberacion segura bajo carrera
 
@@ -106,3 +107,5 @@ Cobertura de esas pruebas:
 4. tests/concurrent_tests.py
 5. tests/test_transaction_idempotency.py
 6. tests/test_transaction_races.py
+7. scripts/run_avance2_evidence.sh
+8. artifacts/fase2/20260423-224829/
