@@ -1,148 +1,133 @@
-# Manual Tecnico - ConcertSync Phase II
+# Manual Tecnico - ConcertSync (Fase II)
 
-## Arquitectura
+## 1. Objetivo
 
-El sistema mantiene una arquitectura cliente-servidor por sockets TCP con concurrencia basada en hilos de Python (threading).
+Este manual resume la implementacion concurrente local de ConcertSync para la Fase II,
+incluyendo arquitectura, sincronizacion, transacciones con TTL y validacion bajo carga.
 
-Componentes principales:
+## 2. Arquitectura Concurrente
 
-- ConcertServer: inicializa recursos compartidos y arranca hilos de listener y monitor.
-- ListenerThread: acepta conexiones entrantes y crea un TransactionalThread por solicitud.
-- TransactionalThread: procesa acciones RESERVE, CONFIRM, CANCEL y QUERY.
-- MonitorThread: detecta reservas expiradas por TTL y aplica rollback consistente.
-- SeatMatrix: estructura in-memory de asientos por seccion.
-- ReservationTable: tabla transaccional con estado y metadatos de TTL.
-- SemaphoreManager: control de capacidad disponible por seccion.
-- GlobalLog: log global thread-safe en logs/system.log.
+El sistema sigue un modelo cliente-servidor sobre sockets TCP con JSON.
 
-## Modelo de Sincronizacion
+Componentes:
 
-### Locks y sincronizacion usados
+1. ConcertServer
+	- Inicializa recursos compartidos.
+	- Arranca ListenerThread y MonitorThread.
+2. ListenerThread
+	- Acepta conexiones entrantes.
+	- Crea un TransactionalThread por cliente (creacion dinamica de hilos).
+	- Registra evento THREAD en log por cada hilo transaccional creado.
+3. TransactionalThread
+	- Procesa acciones RESERVE, RESERVE_BATCH, CONFIRM, CANCEL, QUERY.
+4. MonitorThread
+	- Revisa reservas activas y expira transacciones vencidas por TTL.
 
-- Lock por seccion: seat_matrix.mutex_sections[section]
-- Lock global de tabla de reservas: reservation_table.mutex_table
-- Semaforo por seccion: semaphore_mgr.s_sections[section]
-- Lock de log: global_log.mutex_log
+## 3. Recursos Compartidos y Proteccion
 
-### Orden jerarquico de locks
+Recursos:
 
-Para evitar deadlocks se respeta el orden:
+1. Matriz de asientos por seccion (SeatMatrix).
+2. Tabla de reservas temporales (ReservationTable).
+3. Semaforos por seccion (SemaphoreManager).
+4. Bitacora global (GlobalLog).
 
-1. reservation_table.mutex_table (cuando aplica)
-2. seat_matrix.mutex_sections[section]
-3. operacion de semaforo (acquire/release/release_multiple)
+Mecanismos de sincronizacion:
 
-Este orden se usa de forma consistente en:
+1. Mutex por seccion para operaciones de asientos.
+2. Mutex global de tabla para transiciones de estado transaccional.
+3. Semaforo contador por seccion para control de capacidad.
+4. Mutex de log para escrituras concurrentes seguras.
 
-- handle_confirm y handle_cancel
-- expire_reservation
+## 4. Jerarquia de Locks
 
-### Atomicidad de RESERVE (fix critico)
+La jerarquia fue centralizada con:
 
-El flujo de RESERVE se implementa con check-and-act atomico bajo mutex de seccion:
+1. src/synchronization/lock_hierarcky.py
+2. src/synchronization/mutex_manager.py
 
-1. lock de seccion
-2. validar que el asiento siga AVAILABLE
-3. marcar asiento como RESERVED
-4. hacer semaphore acquire dentro de la misma seccion critica
-5. registrar la transaccion en ReservationTable fuera del lock de asiento
+Regla de adquisicion:
 
-Si ocurre excepcion, se ejecuta rollback robusto:
+1. Secciones en orden global (VIP -> PREFERENTIAL -> GENERAL).
+2. Liberacion en orden inverso.
+3. Cuando aplica tabla + secciones, la tabla se adquiere primero.
 
-- si el asiento quedo RESERVED, vuelve a AVAILABLE
-- se libera semaforo solo si habia quedado descontado
-- se registra ERROR en log
-- se responde status ERROR
+Con esto se reduce riesgo de inversion de orden y deadlocks por rutas divergentes.
 
-## Maquina de Estados de Transacciones
+## 5. Flujo Transaccional y TTL
 
-Estados:
+Estados de reserva:
 
-- ACTIVE
-- CONFIRMED
-- CANCELLED
-- EXPIRED
+1. ACTIVE
+2. CONFIRMED
+3. CANCELLED
+4. EXPIRED
 
-Transiciones permitidas:
+Transiciones:
 
-1. RESERVE exitoso: NONE -> ACTIVE
+1. RESERVE/RESERVE_BATCH exitoso: NONE -> ACTIVE
 2. CONFIRM: ACTIVE -> CONFIRMED
 3. CANCEL: ACTIVE -> CANCELLED
-4. TTL monitor: ACTIVE -> EXPIRED
+4. Monitor TTL: ACTIVE -> EXPIRED
 
-Reglas:
+Reglas de recursos:
 
-- CONFIRMED: asientos RESERVED -> SOLD, no se libera semaforo
-- CANCELLED: asientos RESERVED -> AVAILABLE, se libera semaforo (count = asientos liberados)
-- EXPIRED: asientos RESERVED -> AVAILABLE, se libera semaforo con una sola llamada agregada
+1. CONFIRMED: RESERVED -> SOLD, sin liberar semaforo.
+2. CANCELLED: RESERVED -> AVAILABLE, libera semaforo segun asientos liberados.
+3. EXPIRED: RESERVED -> AVAILABLE, libera semaforo segun asientos liberados.
 
-## Invariantes de Safety
+Idempotencia alineada al contrato:
 
-Se validan en cada iteracion de pruebas concurrentes:
+1. CONFIRM sobre CONFIRMED -> SUCCESS.
+2. CANCEL sobre CANCELLED -> SUCCESS.
 
-1. total = available + reserved + sold por seccion
-2. semaforo_disponible == available por seccion
-3. en alta contencion sobre el mismo asiento, exactamente 1 reserva exitosa por seccion/iteracion
+## 6. Cumplimiento de Requisitos de Fase II
 
-## Pruebas Concurrentes
+1. Creacion dinamica de hilos: ListenerThread crea TransactionalThread por conexion.
+2. Proteccion de recursos criticos: mutex por seccion, mutex de tabla, mutex de log.
+3. Control de capacidad por zona: semaforos por seccion.
+4. TTL correcto: MonitorThread expira reservas activas y restituye recursos.
+5. Registro concurrente seguro: GlobalLog con lock dedicado.
+6. Liberacion adecuada de recursos: cancelacion/expiracion restauran asientos y semaforos.
 
-Archivo: tests/concurrent_tests.py
+## 7. Pruebas Relevantes
 
-Configuracion:
+Pruebas de concurrencia y correctitud:
 
-- 50 iteraciones
-- 10 hilos por seccion
-- 3 secciones concurrentes (VIP, PREFERENTIAL, GENERAL)
-- mezcla de operaciones posteriores: CONFIRM (cada 5 iteraciones) y CANCEL (resto)
+1. tests/concurrent_tests.py
+	- Alta contencion por seccion.
+	- Verifica no doble exito para un mismo asiento.
+	- Verifica invariante available + reserved + sold = capacidad.
+	- Verifica semaforo disponible = available.
+2. tests/test_lock_hierarchy_core.py
+	- Valida orden de adquisicion y liberacion de locks.
+3. tests/test_transaction_idempotency.py
+	- Valida idempotencia de confirmacion/cancelacion.
+4. tests/test_transaction_races.py
+	- Valida consistencia en carreras confirm-vs-expire y cancel-vs-expire.
 
-Ejecucion recomendada (NixOS):
+## 8. Ejecucion Local
 
-1. nix develop
-2. : > logs/system.log
-3. for i in $(seq 1 10); do python tests/concurrent_tests.py || break; done
+1. Ejecutar suite completa:
 
-## Evidencia
+	nix develop -c pytest -q
 
-### Evidencia observada en ejecucion local
+2. Ejecutar stress concurrente:
 
-Resultado de corrida exitosa:
+	: > logs/system.log
+	nix develop -c python tests/concurrent_tests.py
 
-- Concurrent stress test completed
-- Iterations: 50
-- Thrundation [!] via 🐍 v3.14.3 via ❄️  impure (nix-shell-env) took 3s 
-❯ ls
-.  ..  .direnv  docs  .envrc  flake.lock  flake.nix  .git  .gitignore  main.py  src  tests
+3. Revisar log generado:
 
-concert-sync on  chore/project-foundation [!] via 🐍 v3.14.3 via ❄️  impure (nix-shell-env) 
-❯ python3
-python3            python3.14         python3.14-config  python3-config     
+	wc -l logs/system.log
+	tail -n 20 logs/system.log
 
-eads per section: 10
-- Successful reservations: 150
-- Confirmed transactions: 30
-- Cancelled transactions: 120
-- Exit code: 0
+4. Generar evidencia completa automatizada (artefactos en artifacts/fase2):
 
-Log actual registrado:
+	bash scripts/run_avance2_evidence.sh
 
-- logs/system.log: 493 lineas (>= 100 eventos requerido)
-- Eventos presentes: RESERVE, CONFIRM, CANCEL, EXPIRE, SERVER
+## 9. Nota de Evidencia
 
-### Tabla de evidencia para resubmision
+La evidencia formal de corridas (resumen de resultados y log) se documenta en:
 
-| Evidencia | Resultado | Fuente |
-|---|---|---|
-| Atomicidad RESERVE sin doble venta | OK | assert len(successes) == 1 en tests/concurrent_tests.py |
-| Handler CONFIRM implementado | OK | src/server/transactional_thread.py |
-| Handler CANCEL implementado | OK | src/server/transactional_thread.py |
-| Handler QUERY implementado | OK | src/server/transactional_thread.py |
-| Expiracion TTL consistente con semaforo | OK | src/server/monitor_thread.py + release_multiple |
-| Semaforo con liberacion multiple | OK | src/shared_resources/semaphore_manager.py |
-| Invariante total asientos | OK | _check_invariants en tests/concurrent_tests.py |
-| Invariante semaforo=available | OK | _check_invariants en tests/concurrent_tests.py |
-| Log concurrente >= 100 eventos | OK (493) | logs/system.log |
-
-## Notas operativas
-
-- Si se interrumpe manualmente con CTRL+C durante un loop de 10 corridas, puede verse KeyboardInterrupt y ConnectionRefusedError en hilos en curso; no implica violacion de safety.
-- Para evidencia limpia, dejar terminar cada corrida sin interrupcion manual.
+docs/evidencia-fase2.md
