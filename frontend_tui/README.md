@@ -47,22 +47,27 @@ python -m frontend_tui
 The seat map in the **Visual seat map** panel is fully interactive:
 
 1. **View seats**: Use the section selector dropdown to switch between VIP, PREFERENTIAL, or GENERAL
-2. **Click a seat**: Click on any colored symbol in the seat grid
-   - The **Row** and **Column** fields on the left panel will auto-fill
+2. **Click a seat**: Click on any colored symbol (·, R, or X) in the seat grid
+   - The **Row** and **Column** fields on the left panel will auto-fill with that seat's coordinates
    - The section selector will update to match your click
-   - Status bar will show the selected seat and its current state
-3. **Reserve**: After clicking, press **Reserve Seat** button
+   - Status bar will show the selected seat and its current state (AVAILABLE, RESERVED, or SOLD)
+3. **Reserve**: After clicking a seat, press **Reserve Seat** button
+
+**Seat Map Layout:**
+```
+     0 1 2 3 4 5 6 7 8 9 10 11 ...  (Column numbers - actual seat indices)
+00 | · · R X · · · R X · ·  ·  ...
+01 | R X · · · · · · · · ·  ·  ...
+02 | · · · · · X R · · · ·  ·  ...
+...
+```
 
 **Seat Map Legend:**
 ```
-·  (green)  = AVAILABLE (clickable to reserve)
-R  (yellow) = RESERVED (another user's reservation)
+·  (green)  = AVAILABLE (click to reserve)
+R  (yellow) = RESERVED (another user's pending reservation)
 X  (red)    = SOLD (confirmed reservation)
 ```
-
-**Column/Row Numbers:**
-- Columns are displayed at the top (0 1 2 3 ... 9 0 1 ...)
-- Rows are displayed on the left (00 01 02 ... 19)
 
 ## Batch Reservation Input Format
 

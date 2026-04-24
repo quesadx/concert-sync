@@ -25,9 +25,28 @@ SECTION_OPTIONS = [
 class ClickableSeatMap(Static):
     """Custom Static widget that handles seat map clicks."""
     
+    DEFAULT_CSS = """
+    ClickableSeatMap {
+        border: round #5a8f9f;
+        background: #0b1220;
+        padding: 1;
+        color: #e0f0ff;
+        height: 1fr;
+        overflow-y: auto;
+    }
+    ClickableSeatMap:hover {
+        border: round #7aafbf;
+        background: #0d1428;
+    }
+    """
+    
     def __init__(self, app_instance, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.app_instance = app_instance
+    
+    def render(self) -> str:
+        """Return the rendered seat map content."""
+        return self.app_instance._get_current_seat_map_content()
     
     def on_click(self, event) -> None:
         """Handle click events on the seat map."""
@@ -212,7 +231,6 @@ class ConcertTextualApp(App):
     def _on_seat_map_click(self, event) -> None:
         """Handle clicks on seat map to auto-fill row/col fields."""
         try:
-            # Get the seat map widget's rendered text
             seat_map = self.query_one("#seat-map-view", Static)
             content = seat_map.render_str
             if not content:
@@ -224,56 +242,71 @@ class ConcertTextualApp(App):
             
             line = lines[event.y]
             
-            # Lines with seats start with "XX " (row number) and contain colored symbols
-            # Format: "[dim]XX[/] [green]·[/] [yellow]R[/] ..."
-            if len(line) < 3 or not line[0:2].replace('[', '').replace(']', '').isdigit():
+            # Check if this is a data line (format: "00 | [colors]seat seat seat...")
+            if not "|" in line or len(line) < 5:
                 return
             
-            # Extract row number from the line
-            row_match = ""
-            for i in range(min(10, len(line))):
-                if line[i].isdigit():
-                    row_match += line[i]
-                elif row_match:
-                    break
-            
-            if not row_match:
+            # Extract row number (first 2 chars before the |)
+            row_part = line[:2].strip()
+            if not row_part.isdigit():
                 return
             
-            row_idx = int(row_match)
+            row_idx = int(row_part)
             
-            # Calculate column index from x position
-            # We need to count the seat symbols
-            # Each seat in the rendered line is roughly 8 characters (with markup)
-            # Let's extract just the seat part and count
-            seat_part = line[4:]  # Skip "XX" + separator
+            # Find the pipe separator
+            pipe_idx = line.index("|")
             
-            # Count seats up to the click position
-            col_idx = 0
-            char_pos = 4  # Start after row number
-            for char in seat_part:
-                if char_pos >= event.x:
-                    break
-                if char in "·RX?":  # These are the seat symbols
-                    char_pos += 2  # Each seat + space
-                    col_idx += 1
+            # Everything after the pipe contains the seats with markup
+            seat_content = line[pipe_idx + 1:].strip()
+            
+            # Count actual seat symbols (·, R, X, ?) by removing markup
+            # Markup looks like [color]symbol[/]
+            seat_symbols = []
+            i = 0
+            while i < len(seat_content):
+                if seat_content[i] == "[":
+                    # Skip markup, find the closing ]
+                    close = seat_content.find("]", i)
+                    if close != -1:
+                        i = close + 1
+                    else:
+                        i += 1
+                elif seat_content[i] in "·RX?":
+                    seat_symbols.append((i, seat_content[i]))
+                    i += 1
                 else:
-                    char_pos += 1
+                    i += 1
             
-            # Verify indices are valid
-            grid = self.seat_map_snapshot.get(self.selected_map_section, [])
-            if 0 <= row_idx < len(grid) and 0 <= col_idx < len(grid[0]):
-                # Auto-fill the row and column fields
-                self.query_one("#row-input", Input).value = str(row_idx)
-                self.query_one("#col-input", Input).value = str(col_idx)
-                
-                # Update section selector to match
-                self.query_one("#section-select", Select).value = self.selected_map_section
-                
-                # Status update
-                state = grid[row_idx][col_idx]
-                self._set_status(f"Selected {self.selected_map_section}({row_idx},{col_idx}) - State: {state}")
-                self._append_event(f"[UI] Clicked seat {self.selected_map_section}({row_idx},{col_idx})")
+            # Determine which seat was clicked based on character position
+            # event.x is the column in the rendered text
+            # We need to find which seat symbol this corresponds to
+            
+            col_idx = None
+            for seat_num, (char_pos, symbol) in enumerate(seat_symbols):
+                # Approximate: each seat takes ~2 chars on average due to spacing
+                # Check if click is near this seat
+                if char_pos <= event.x < char_pos + 20:  # Generous range
+                    col_idx = seat_num
+                    break
+            
+            # If no exact match, guess based on distance
+            if col_idx is None and seat_symbols:
+                # Find closest seat to the click position
+                closest = min(seat_symbols, key=lambda x: abs(x[0] - event.x))
+                col_idx = seat_symbols.index(closest)
+            
+            if col_idx is not None:
+                # Verify this is a valid seat
+                grid = self.seat_map_snapshot.get(self.selected_map_section, [])
+                if 0 <= row_idx < len(grid) and 0 <= col_idx < len(grid[0]):
+                    # Auto-fill the fields
+                    self.query_one("#row-input", Input).value = str(row_idx)
+                    self.query_one("#col-input", Input).value = str(col_idx)
+                    self.query_one("#section-select", Select).value = self.selected_map_section
+                    
+                    state = grid[row_idx][col_idx]
+                    self._set_status(f"Selected {self.selected_map_section}({row_idx},{col_idx}) - State: {state}")
+                    self._append_event(f"[UI] Clicked seat {self.selected_map_section}({row_idx},{col_idx})")
         except Exception as e:
             self._set_status(f"Click error: {e}")
 
@@ -624,20 +657,22 @@ class ConcertTextualApp(App):
         lines.append(legend)
         lines.append("")
         
-        # Add column headers
+        # Add column headers with two-digit numbers
         num_cols = len(grid[0]) if grid else 0
-        header_parts = ["    "]  # Leading spaces for row numbers
+        header_line = "    "  # 4 spaces for "00 |"
         for col_idx in range(num_cols):
-            header_parts.append(f"[dim]{col_idx % 10}[/]")
-        lines.append(" ".join(header_parts))
+            header_line += f"{col_idx:2d}"
+        lines.append(header_line)
         
         # Add rows with seats
         for row_idx, row in enumerate(grid):
             cells = []
             for state in row:
                 cells.append(self._seat_symbol(state))
+            # Each cell is a colored symbol, and we join them with spaces
             row_line = " ".join(cells)
-            lines.append(f"[dim]{row_idx:02d}[/] {row_line}")
+            # Row line format: "00 | [colors]seat seat seat..."
+            lines.append(f"{row_idx:02d} | {row_line}")
 
         return "\n".join(lines)
 
@@ -645,11 +680,15 @@ class ConcertTextualApp(App):
         """Alias for backward compatibility."""
         return self._render_section_grid_with_headers(section_name, grid)
 
-    def _render_seat_map(self) -> None:
-        legend = "[green]· AVAILABLE[/]   [yellow]R RESERVED[/]   [red]X SOLD[/]"
+    def _get_current_seat_map_content(self) -> str:
+        """Build the current seat map content for rendering."""
         selected_grid = self.seat_map_snapshot.get(self.selected_map_section, [])
-        full_text = legend + "\n\n" + self._render_section_grid(self.selected_map_section, selected_grid)
-        self.query_one("#seat-map-view", Static).update(full_text)
+        return self._render_section_grid(self.selected_map_section, selected_grid)
+
+    def _render_seat_map(self) -> None:
+        """Refresh the seat map widget."""
+        seat_map = self.query_one("#seat-map-view", ClickableSeatMap)
+        seat_map.refresh(recompose=False)
 
     def _latest_session(self, active_only: bool) -> Optional[TrackedSession]:
         filtered = [
