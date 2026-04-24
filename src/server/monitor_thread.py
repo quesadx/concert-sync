@@ -1,7 +1,7 @@
 import threading
 import time
 
-from src.utils.enums import ReservationStatus, SeatState
+from src.utils.enums import ReservationStatus, SeatState, Section
 
 
 class MonitorThread(threading.Thread):
@@ -18,25 +18,54 @@ class MonitorThread(threading.Thread):
             for tx_id in expired:
                 self.expire_reservation(tx_id)
 
+    def _group_reservation_seats_by_section(self, reservation):
+        seats_by_section = {}
+
+        for seat_info in reservation.seats:
+            if len(seat_info) == 3:
+                section, row, col = seat_info
+            else:
+                section = reservation.section
+                row, col = seat_info
+
+            if section not in seats_by_section:
+                seats_by_section[section] = []
+            seats_by_section[section].append((row, col))
+
+        return seats_by_section
+
+    def _ordered_sections(self, sections):
+        section_set = set(sections)
+        return [section for section in Section if section in section_set]
+
     def expire_reservation(self, tx_id):
-        with self.server.reservation_table.mutex_table:
+        released_counts = {}
+
+        with self.server.mutex_manager.table():
             reservation = self.server.reservation_table.reservations.get(tx_id)
             if not reservation or reservation.state != ReservationStatus.ACTIVE:
                 return
 
+            seats_by_section = self._group_reservation_seats_by_section(reservation)
+            ordered_sections = self._ordered_sections(seats_by_section.keys())
+            released_counts = {section: 0 for section in ordered_sections}
+
+            with self.server.mutex_manager.sections(ordered_sections):
+                for section in ordered_sections:
+                    for row, col in seats_by_section[section]:
+                        if self.server.seat_matrix.seats[section][row][col] == SeatState.RESERVED:
+                            self.server.seat_matrix.seats[section][row][col] = SeatState.AVAILABLE
+                            released_counts[section] += 1
+
             reservation.state = ReservationStatus.EXPIRED
-            section = reservation.section
-            released_count = 0
 
-            with self.server.seat_matrix.mutex_sections[section]:
-                for row, col in reservation.seats:
-                    if self.server.seat_matrix.seats[section][row][col] == SeatState.RESERVED:
-                        self.server.seat_matrix.seats[section][row][col] = SeatState.AVAILABLE
-                        released_count += 1
+        for section, count in released_counts.items():
+            if count > 0:
+                self.server.semaphore_mgr.release_multiple(section, count)
 
-            self.server.semaphore_mgr.release_multiple(section, released_count)
+        released_total = sum(released_counts.values())
 
         self.server.global_log.append(
             "EXPIRE",
-            f"TX:{tx_id} expired seats_released:{released_count}",
+            f"TX:{tx_id} expired seats_released:{released_total} sections_released:{len(released_counts)}",
         )
