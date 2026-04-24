@@ -39,6 +39,7 @@ Button {
 
 #connection-row,
 #seat-row,
+#tx-helpers-row,
 #tx-row,
 #quick-row,
 #log-row {
@@ -67,13 +68,26 @@ Button {
 #confirm-btn,
 #cancel-btn,
 #query-btn,
-#apply-log-btn {
+#apply-log-btn,
+#use-last-tx-btn,
+#use-last-active-tx-btn {
     width: 49%;
 }
 
 #cancel-btn,
-#apply-log-btn {
+#apply-log-btn,
+#use-last-active-tx-btn {
     margin-left: 1;
+}
+
+#batch-help {
+    color: #9fb3c8;
+    margin-bottom: 1;
+}
+
+#map-section-select {
+    margin-top: 1;
+    margin-bottom: 1;
 }
 
 #section-table {
@@ -87,12 +101,18 @@ Button {
 }
 
 #seat-map-view {
-    border: round #4f6f8f;
+    border: round #5a8f9f;
     background: #0b1220;
     padding: 1;
     margin-top: 1;
     height: 28;
     overflow-y: auto;
+    color: #e0f0ff;
+}
+
+#seat-map-view:hover {
+    border: round #7aafbf;
+    background: #0d1428;
 }
 
 #request-chart,

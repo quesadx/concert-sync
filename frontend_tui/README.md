@@ -8,11 +8,19 @@ This folder contains a terminal user interface (TUI) built with Textual to inter
 - Reserve a single seat.
 - Reserve multiple seats atomically (`RESERVE_BATCH`).
 - Confirm and cancel transactions.
+- Transaction usability helpers:
+  - the Transaction ID input is auto-filled after each reserve
+  - Use Last TX button
+  - Use Last ACTIVE button
 - Live section availability dashboard (`QUERY` polling every second).
 - Visual seat map per section with live color updates:
-  - green = AVAILABLE
-  - yellow = RESERVED
-  - red = SOLD
+  - **Clickable seats** - click any seat in the map to auto-fill row/column fields
+  - Column numbers displayed at the top (0–9 repeating)
+  - Row numbers on the left (00–19)
+  - section selector (VIP / PREFERENTIAL / GENERAL)
+  - green dot (`·`) = AVAILABLE
+  - yellow `R` = RESERVED
+  - red `X` = SOLD
 - Local transaction tracking with real-time TTL countdown.
 - Live event stream panel.
 - Lightweight performance charts:
@@ -33,6 +41,28 @@ If you are not using Nix, make sure `textual` is installed and run:
 ```bash
 python -m frontend_tui
 ```
+
+## How to Use Clickable Seat Map
+
+The seat map in the **Visual seat map** panel is fully interactive:
+
+1. **View seats**: Use the section selector dropdown to switch between VIP, PREFERENTIAL, or GENERAL
+2. **Click a seat**: Click on any colored symbol in the seat grid
+   - The **Row** and **Column** fields on the left panel will auto-fill
+   - The section selector will update to match your click
+   - Status bar will show the selected seat and its current state
+3. **Reserve**: After clicking, press **Reserve Seat** button
+
+**Seat Map Legend:**
+```
+·  (green)  = AVAILABLE (clickable to reserve)
+R  (yellow) = RESERVED (another user's reservation)
+X  (red)    = SOLD (confirmed reservation)
+```
+
+**Column/Row Numbers:**
+- Columns are displayed at the top (0 1 2 3 ... 9 0 1 ...)
+- Rows are displayed on the left (00 01 02 ... 19)
 
 ## Batch Reservation Input Format
 

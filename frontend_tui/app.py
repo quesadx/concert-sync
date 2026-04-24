@@ -22,6 +22,18 @@ SECTION_OPTIONS = [
 ]
 
 
+class ClickableSeatMap(Static):
+    """Custom Static widget that handles seat map clicks."""
+    
+    def __init__(self, app_instance, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.app_instance = app_instance
+    
+    def on_click(self, event) -> None:
+        """Handle click events on the seat map."""
+        self.app_instance._on_seat_map_click(event)
+
+
 @dataclass
 class TrackedSession:
     transaction_id: str
@@ -96,6 +108,7 @@ class ConcertTextualApp(App):
             "GENERAL": {"available": 0, "reserved": 0, "sold": 0},
         }
         self.seat_map_snapshot = self._build_empty_seat_map()
+        self.selected_map_section = "GENERAL"
         self.requests_this_tick = 0
         self.request_history: List[int] = []
         self.thread_history: List[int] = []
@@ -126,13 +139,21 @@ class ConcertTextualApp(App):
 
                 yield Static("Reserve batch seats", classes="panel-title")
                 yield Input(
-                    placeholder="Example: VIP:0:0,VIP:0:1,GENERAL:2:3",
+                    placeholder="VIP:0:0,VIP:0:1,GENERAL:2:3",
                     id="batch-input",
+                )
+                yield Static(
+                    "Format: SECTION:ROW:COL\n"
+                    "Example: VIP:0:0,VIP:0:1,GENERAL:2:3",
+                    id="batch-help",
                 )
                 yield Button("Reserve Batch", id="reserve-batch-btn", variant="success")
 
                 yield Static("Transaction actions", classes="panel-title")
                 yield Input(placeholder="Transaction ID", id="tx-input")
+                with Horizontal(id="tx-helpers-row"):
+                    yield Button("Use Last TX", id="use-last-tx-btn")
+                    yield Button("Use Last ACTIVE", id="use-last-active-tx-btn")
                 with Horizontal(id="tx-row"):
                     yield Button("Confirm", id="confirm-btn", variant="primary")
                     yield Button("Cancel", id="cancel-btn", variant="warning")
@@ -150,8 +171,14 @@ class ConcertTextualApp(App):
                 yield Static("Seat availability by section", classes="panel-title")
                 yield DataTable(id="section-table")
 
-                yield Static("Visual seat map", classes="panel-title")
-                yield Static("", id="seat-map-view")
+                yield Static("Visual seat map (click a seat to select)", classes="panel-title")
+                yield Select(
+                    SECTION_OPTIONS,
+                    value="GENERAL",
+                    id="map-section-select",
+                    allow_blank=False,
+                )
+                yield ClickableSeatMap(self, "", id="seat-map-view")
 
                 yield Static("Tracked transactions (TTL)", classes="panel-title")
                 yield DataTable(id="session-table")
@@ -182,6 +209,74 @@ class ConcertTextualApp(App):
     def action_manual_refresh(self) -> None:
         self._refresh_query(silent=False)
 
+    def _on_seat_map_click(self, event) -> None:
+        """Handle clicks on seat map to auto-fill row/col fields."""
+        try:
+            # Get the seat map widget's rendered text
+            seat_map = self.query_one("#seat-map-view", Static)
+            content = seat_map.render_str
+            if not content:
+                return
+            
+            lines = content.split("\n")
+            if event.y >= len(lines):
+                return
+            
+            line = lines[event.y]
+            
+            # Lines with seats start with "XX " (row number) and contain colored symbols
+            # Format: "[dim]XX[/] [green]·[/] [yellow]R[/] ..."
+            if len(line) < 3 or not line[0:2].replace('[', '').replace(']', '').isdigit():
+                return
+            
+            # Extract row number from the line
+            row_match = ""
+            for i in range(min(10, len(line))):
+                if line[i].isdigit():
+                    row_match += line[i]
+                elif row_match:
+                    break
+            
+            if not row_match:
+                return
+            
+            row_idx = int(row_match)
+            
+            # Calculate column index from x position
+            # We need to count the seat symbols
+            # Each seat in the rendered line is roughly 8 characters (with markup)
+            # Let's extract just the seat part and count
+            seat_part = line[4:]  # Skip "XX" + separator
+            
+            # Count seats up to the click position
+            col_idx = 0
+            char_pos = 4  # Start after row number
+            for char in seat_part:
+                if char_pos >= event.x:
+                    break
+                if char in "·RX?":  # These are the seat symbols
+                    char_pos += 2  # Each seat + space
+                    col_idx += 1
+                else:
+                    char_pos += 1
+            
+            # Verify indices are valid
+            grid = self.seat_map_snapshot.get(self.selected_map_section, [])
+            if 0 <= row_idx < len(grid) and 0 <= col_idx < len(grid[0]):
+                # Auto-fill the row and column fields
+                self.query_one("#row-input", Input).value = str(row_idx)
+                self.query_one("#col-input", Input).value = str(col_idx)
+                
+                # Update section selector to match
+                self.query_one("#section-select", Select).value = self.selected_map_section
+                
+                # Status update
+                state = grid[row_idx][col_idx]
+                self._set_status(f"Selected {self.selected_map_section}({row_idx},{col_idx}) - State: {state}")
+                self._append_event(f"[UI] Clicked seat {self.selected_map_section}({row_idx},{col_idx})")
+        except Exception as e:
+            self._set_status(f"Click error: {e}")
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
 
@@ -197,8 +292,17 @@ class ConcertTextualApp(App):
             self._confirm_transaction()
         elif button_id == "cancel-btn":
             self._cancel_transaction()
+        elif button_id == "use-last-tx-btn":
+            self._fill_transaction_input_with_latest(active_only=False)
+        elif button_id == "use-last-active-tx-btn":
+            self._fill_transaction_input_with_latest(active_only=True)
         elif button_id == "query-btn":
             self._refresh_query(silent=False)
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "map-section-select" and event.value:
+            self.selected_map_section = str(event.value)
+            self._render_seat_map()
 
     def _refresh_every_second(self) -> None:
         self._refresh_query(silent=True)
@@ -326,6 +430,7 @@ class ConcertTextualApp(App):
                 ttl_seconds=ttl,
                 created_at=time.time(),
             )
+            self.query_one("#tx-input", Input).value = transaction_id
 
             self._set_status(f"Reserved {section}({row},{col}) -> {transaction_id}")
             self._append_event(f"[RESERVE] tx={transaction_id} seat={section}({row},{col}) ttl={ttl}s")
@@ -381,6 +486,7 @@ class ConcertTextualApp(App):
                 ttl_seconds=ttl,
                 created_at=time.time(),
             )
+            self.query_one("#tx-input", Input).value = transaction_id
 
             self._set_status(f"Batch reserved -> {transaction_id}")
             self._append_event(f"[RESERVE_BATCH] tx={transaction_id} seats={seat_summary} ttl={ttl}s")
@@ -395,9 +501,8 @@ class ConcertTextualApp(App):
     def _confirm_transaction(self) -> None:
         try:
             client = self._ensure_client()
-            tx_id = self.query_one("#tx-input", Input).value.strip()
-            if not tx_id:
-                self._set_status("Transaction ID is required.")
+            tx_id = self._resolve_transaction_id_from_input()
+            if tx_id is None:
                 return
 
             self._request(lambda: client.confirm(tx_id))
@@ -415,9 +520,8 @@ class ConcertTextualApp(App):
     def _cancel_transaction(self) -> None:
         try:
             client = self._ensure_client()
-            tx_id = self.query_one("#tx-input", Input).value.strip()
-            if not tx_id:
-                self._set_status("Transaction ID is required.")
+            tx_id = self._resolve_transaction_id_from_input()
+            if tx_id is None:
                 return
 
             self._request(lambda: client.cancel(tx_id))
@@ -495,37 +599,98 @@ class ConcertTextualApp(App):
     @staticmethod
     def _seat_symbol(state: str) -> str:
         if state == "AVAILABLE":
-            return "[green]●[/]"
+            return "[green]·[/]"
         if state == "RESERVED":
-            return "[yellow]●[/]"
+            return "[yellow]R[/]"
         if state == "SOLD":
-            return "[red]●[/]"
+            return "[red]X[/]"
         return "[grey50]?[/]"
 
-    def _render_section_grid(self, section_name: str, grid: List[List[str]]) -> str:
+    def _render_section_grid_with_headers(self, section_name: str, grid: List[List[str]]) -> str:
+        """Render grid with column headers and click hints."""
         if not grid:
             return f"[bold]{section_name}[/]: no data"
 
-        max_cols = max(len(row) for row in grid)
-        header = "    " + " ".join(f"{idx:02d}" for idx in range(max_cols))
-
-        lines = [f"[bold cyan]{section_name}[/]", header]
-        for row_index, row in enumerate(grid):
-            cells = " ".join(self._seat_symbol(state) for state in row)
-            lines.append(f"{row_index:02d}  {cells}")
+        section_counts = self.section_snapshot.get(section_name, {})
+        lines = [
+            f"[bold cyan]{section_name}[/]  "
+            f"A={section_counts.get('available', 0)} "
+            f"R={section_counts.get('reserved', 0)} "
+            f"S={section_counts.get('sold', 0)}"
+        ]
+        
+        # Add legend
+        legend = "[dim][green]· Avail  [yellow]R Res  [red]X Sold[/] - Click seat to auto-fill[/]"
+        lines.append(legend)
+        lines.append("")
+        
+        # Add column headers
+        num_cols = len(grid[0]) if grid else 0
+        header_parts = ["    "]  # Leading spaces for row numbers
+        for col_idx in range(num_cols):
+            header_parts.append(f"[dim]{col_idx % 10}[/]")
+        lines.append(" ".join(header_parts))
+        
+        # Add rows with seats
+        for row_idx, row in enumerate(grid):
+            cells = []
+            for state in row:
+                cells.append(self._seat_symbol(state))
+            row_line = " ".join(cells)
+            lines.append(f"[dim]{row_idx:02d}[/] {row_line}")
 
         return "\n".join(lines)
 
-    def _render_seat_map(self) -> None:
-        legend = "[green]● AVAILABLE[/]   [yellow]● RESERVED[/]   [red]● SOLD[/]"
-        section_blocks = []
-        for section_name in ["VIP", "PREFERENTIAL", "GENERAL"]:
-            section_blocks.append(
-                self._render_section_grid(section_name, self.seat_map_snapshot.get(section_name, []))
-            )
+    def _render_section_grid(self, section_name: str, grid: List[List[str]]) -> str:
+        """Alias for backward compatibility."""
+        return self._render_section_grid_with_headers(section_name, grid)
 
-        full_text = legend + "\n\n" + "\n\n".join(section_blocks)
+    def _render_seat_map(self) -> None:
+        legend = "[green]· AVAILABLE[/]   [yellow]R RESERVED[/]   [red]X SOLD[/]"
+        selected_grid = self.seat_map_snapshot.get(self.selected_map_section, [])
+        full_text = legend + "\n\n" + self._render_section_grid(self.selected_map_section, selected_grid)
         self.query_one("#seat-map-view", Static).update(full_text)
+
+    def _latest_session(self, active_only: bool) -> Optional[TrackedSession]:
+        filtered = [
+            session
+            for session in self.sessions.values()
+            if (session.state == "ACTIVE" if active_only else True)
+        ]
+        if not filtered:
+            return None
+        return max(filtered, key=lambda session: session.created_at)
+
+    def _fill_transaction_input_with_latest(self, active_only: bool) -> None:
+        latest = self._latest_session(active_only=active_only)
+        if latest is None:
+            if active_only:
+                self._set_status("No ACTIVE transactions tracked yet.")
+            else:
+                self._set_status("No transactions tracked yet.")
+            return
+
+        self.query_one("#tx-input", Input).value = latest.transaction_id
+        state_hint = "ACTIVE" if active_only else latest.state
+        self._set_status(f"Transaction input set to {latest.transaction_id} ({state_hint}).")
+
+    def _resolve_transaction_id_from_input(self) -> Optional[str]:
+        tx_input = self.query_one("#tx-input", Input)
+        tx_id = tx_input.value.strip()
+        if tx_id:
+            return tx_id
+
+        # Friendly fallback when clipboard is inconvenient.
+        latest_active = self._latest_session(active_only=True)
+        if latest_active is not None:
+            tx_input.value = latest_active.transaction_id
+            self._set_status(
+                f"Transaction ID was empty. Using latest ACTIVE: {latest_active.transaction_id}."
+            )
+            return latest_active.transaction_id
+
+        self._set_status("Transaction ID is required. Reserve first or press Use Last ACTIVE.")
+        return None
 
     def _render_metrics_panels(self) -> None:
         request_chart = self._render_sparkline(self.request_history, "Requests/tick")
