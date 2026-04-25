@@ -73,8 +73,21 @@ Example request format:
 }
 ```
 
-## Notes
+## Justification and Quality
 
-- The server is designed for learning and concurrency experimentation rather than production use.
-- `src/synchronization/lock_hierarcky.py` and `src/synchronization/mutex_manager.py` are part of the lock orchestration used by transactional operations.
-- Logs are written to `logs/system.log`.
+### Justificación
+- Decisiones técnicas clave:
+  - uso de sockets TCP para comunicación cliente-servidor
+  - uso de `threading` para cada conexión y un monitor de expiración independiente
+  - coordinación de recursos con `mutex` y semáforos por sección
+  - controla el estado de cada asiento en `AVAILABLE`, `RESERVED` y `SOLD`
+  - protege matriz, tabla de reservas y semáforos para evitar inconsistencias
+  - aplica expiración TTL y manejo correcto de confirmaciones/cancelaciones
+
+### Calidad
+- Código estructurado y comentado:
+  - módulo de sincronización separado (`src/synchronization`)
+  - manejo de estados y transacciones en `src/server/transactional_thread.py`
+  - recursos compartidos encapsulados en `src/shared_resources`
+
+
