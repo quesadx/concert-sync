@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import threading
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -101,6 +102,7 @@ class ConcertTextualApp(App):
         self.request_history: List[int] = []
         self.thread_history: List[int] = []
         self.error_history: List[int] = []
+        self.pending_clicks: Set[tuple[str, int, int]] = set()
         self.log_tailer = LogTailer(Path("logs/system.log"))
 
     def compose(self) -> ComposeResult:
@@ -166,7 +168,7 @@ class ConcertTextualApp(App):
                     id="map-section-select",
                     allow_blank=False,
                 )
-                yield Static("A=AVAILABLE  R=RESERVED  S=SOLD  (click a cell)", id="seat-map-legend")
+                yield Static("A=AVAILABLE  R=RESERVED  S=SOLD  (click an available seat to reserve)", id="seat-map-legend")
                 yield DataTable(id="seat-map-table")
 
                 yield Static("Tracked transactions (TTL)", classes="panel-title")
@@ -216,17 +218,35 @@ class ConcertTextualApp(App):
             if row_idx < 0 or row_idx >= len(grid) or col_idx < 0 or col_idx >= len(grid[row_idx]):
                 return
 
+            section = self.selected_map_section
+            state = grid[row_idx][col_idx]
+
             self.query_one("#row-input", Input).value = str(row_idx)
             self.query_one("#col-input", Input).value = str(col_idx)
-            self.query_one("#section-select", Select).value = self.selected_map_section
+            self.query_one("#section-select", Select).value = section
 
-            state = grid[row_idx][col_idx]
-            self._set_status(
-                f"Selected {self.selected_map_section}({row_idx},{col_idx}) - State: {state}"
-            )
             self._append_event(
-                f"[UI] Clicked seat {self.selected_map_section}({row_idx},{col_idx})"
+                f"[UI] Clicked seat {section}({row_idx},{col_idx}) - state={state}"
             )
+
+            if state == "AVAILABLE":
+                seat_key = (section, row_idx, col_idx)
+                if seat_key not in self.pending_clicks:
+                    self.pending_clicks.add(seat_key)
+                    self._set_status(f"Reserving {section}({row_idx},{col_idx})...")
+                    threading.Thread(
+                        target=self._reserve_click_worker,
+                        args=(section, row_idx, col_idx, seat_key),
+                        daemon=True,
+                    ).start()
+                else:
+                    self._set_status(
+                        f"Already reserving {section}({row_idx},{col_idx})..."
+                    )
+            else:
+                self._set_status(
+                    f"Selected {section}({row_idx},{col_idx}) - State: {state}"
+                )
         except Exception as e:
             self._set_status(f"Seat select error: {e}")
 
@@ -394,6 +414,51 @@ class ConcertTextualApp(App):
         except ConcertClientError as exc:
             self._set_status(f"Reserve failed: {exc}")
             self._append_event(f"[RESERVE] Failed: {exc}")
+
+    def _reserve_click_submit(self, section: str, row: int, col: int):
+        client = self._ensure_client()
+        return self._request(lambda: client.reserve_seat(section, row, col))
+
+    def _reserve_click_succeeded(self, section: str, row: int, col: int, response) -> None:
+        transaction_id = response["transaction_id"]
+        ttl = int(response.get("ttl", 0))
+
+        self.sessions[transaction_id] = TrackedSession(
+            transaction_id=transaction_id,
+            operation_type="CLICK",
+            seat_summary=f"{section}({row},{col})",
+            ttl_seconds=ttl,
+            created_at=time.time(),
+        )
+        self.query_one("#tx-input", Input).value = transaction_id
+
+        self._set_status(f"Reserved {section}({row},{col}) via click -> {transaction_id}")
+        self._append_event(f"[RESERVE_CLICK] tx={transaction_id} seat={section}({row},{col}) ttl={ttl}s")
+        self._render_session_table()
+        self._refresh_query(silent=True)
+
+    def _reserve_click_failed(self, section: str, row: int, col: int, error_message: str) -> None:
+        self._set_status(f"Click reserve failed: {error_message}")
+        self._append_event(f"[RESERVE_CLICK] Failed: {error_message}")
+
+    def _reserve_click_worker(self, section: str, row: int, col: int, seat_key: tuple[str, int, int]) -> None:
+        try:
+            response = self._reserve_click_submit(section, row, col)
+            try:
+                self.call_from_thread(self._reserve_click_succeeded, section, row, col, response)
+            except Exception:
+                self._reserve_click_succeeded(section, row, col, response)
+        except ConcertClientError as exc:
+            try:
+                self.call_from_thread(self._reserve_click_failed, section, row, col, str(exc))
+            except Exception:
+                self._reserve_click_failed(section, row, col, str(exc))
+        finally:
+            # Remove the pending marker in the main thread context.
+            try:
+                self.call_from_thread(self.pending_clicks.discard, seat_key)
+            except Exception:
+                self.pending_clicks.discard(seat_key)
 
     def _parse_batch_input(self, text: str) -> List[dict]:
         seats = []
@@ -580,7 +645,7 @@ class ConcertTextualApp(App):
 
         self.query_one(
             "#seat-map-legend", Static
-        ).update("A=AVAILABLE  R=RESERVED  S=SOLD  (click a cell)")
+        ).update("A=AVAILABLE  R=RESERVED  S=SOLD  (click an available seat to reserve)")
 
     def _latest_session(self, active_only: bool) -> Optional[TrackedSession]:
         filtered = [

@@ -2,6 +2,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
+from typing import Optional, Tuple
 from src.utils.config import RESERVATION_TTL
 from src.utils.enums import ReservationStatus, Section
 
@@ -10,6 +11,7 @@ class Reservation:
     transaction_id: str
     section: Section
     seats: list
+    seat_id: Optional[Tuple[Section, int, int]]
     timestamp_creation: float
     ttl_secs: int
     state: ReservationStatus
@@ -20,13 +22,14 @@ class ReservationTable:
         self.mutex_table = threading.Lock()
         self.cond_var = threading.Condition(self.mutex_table)
 
-    def add_reservation(self, section, seats):
+    def add_reservation(self, section, seats, seat_id=None):
         with self.mutex_table:
             tx_id = str(uuid.uuid4())
             reservation = Reservation(
                 transaction_id=tx_id,
                 section=section,
                 seats=seats,
+                seat_id=seat_id,
                 timestamp_creation=time.time(),
                 ttl_secs=RESERVATION_TTL,
                 state=ReservationStatus.ACTIVE
@@ -48,3 +51,7 @@ class ReservationTable:
     def get_reservation(self, tx_id):
         with self.mutex_table:
             return self.reservations.get(tx_id)
+
+    def delete_reservation(self, tx_id):
+        with self.mutex_table:
+            return self.reservations.pop(tx_id, None)

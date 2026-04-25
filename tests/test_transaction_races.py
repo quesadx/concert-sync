@@ -69,22 +69,16 @@ def test_confirm_vs_expire_keeps_consistency():
         assert results["expire"] == "ok"
         assert results["client"] in {"ok", f"error:{TransactionNotActiveError.__name__}"}
 
-        with server.reservation_table.mutex_table:
-            reservation = server.reservation_table.reservations[tx_id]
-            final_state = reservation.state
-
         seat_state = server.seat_matrix.seats[Section.VIP][0][3]
         semaphore_value = server.semaphore_mgr.s_sections[Section.VIP]._value
         capacity = _vip_capacity()
 
-        if final_state == ReservationStatus.CONFIRMED:
+        if results["client"] == "ok":
             assert seat_state == SeatState.SOLD
             assert semaphore_value == capacity - 1
-        elif final_state == ReservationStatus.EXPIRED:
+        else:
             assert seat_state == SeatState.AVAILABLE
             assert semaphore_value == capacity
-        else:
-            raise AssertionError(f"Unexpected final state after confirm/expire race: {final_state}")
     finally:
         server.stop()
 
@@ -114,8 +108,7 @@ def test_cancel_vs_expire_releases_once():
         assert results["client"] in {"ok", f"error:{TransactionNotActiveError.__name__}"}
 
         with server.reservation_table.mutex_table:
-            reservation = server.reservation_table.reservations[tx_id]
-            assert reservation.state in {ReservationStatus.CANCELLED, ReservationStatus.EXPIRED}
+            assert tx_id not in server.reservation_table.reservations
 
         seat_state = server.seat_matrix.seats[Section.VIP][0][4]
         semaphore_value = server.semaphore_mgr.s_sections[Section.VIP]._value

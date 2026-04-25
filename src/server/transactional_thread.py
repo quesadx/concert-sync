@@ -147,8 +147,12 @@ class TransactionalThread(threading.Thread):
                     seats[row][col] = SeatState.AVAILABLE
                     return failure_no_capacity(section_str)
 
-            # Create reservation transaction
-            tx_id = self.server.reservation_table.add_reservation(section, [(row, col)])
+            # Create reservation transaction for this selected seat
+            tx_id = self.server.reservation_table.add_reservation(
+                section,
+                [(row, col)],
+                seat_id=(section, row, col),
+            )
 
             self.server.global_log.append(
                 "RESERVE",
@@ -329,10 +333,6 @@ class TransactionalThread(threading.Thread):
                 if not reservation:
                     return failure_transaction_not_found(tx_id)
 
-                if reservation.state == ReservationStatus.CONFIRMED:
-                    # Idempotent confirm: already confirmed means same successful outcome.
-                    return build_success_response(transaction_id=tx_id)
-                
                 if reservation.state != ReservationStatus.ACTIVE:
                     return failure_transaction_not_active(tx_id, reservation.state.value)
 
@@ -352,7 +352,9 @@ class TransactionalThread(threading.Thread):
 
                             self.server.seat_matrix.seats[section][row][col] = SeatState.SOLD
 
-                reservation.state = ReservationStatus.CONFIRMED
+                cleared_reservation = self.server.reservation_table.delete_reservation(tx_id)
+                if cleared_reservation is None:
+                    return error_internal(f"Reservation {tx_id} disappeared during confirm")
 
             self.server.global_log.append("CONFIRM", f"TX:{tx_id} confirmed")
             return build_success_response(transaction_id=tx_id)
@@ -377,10 +379,6 @@ class TransactionalThread(threading.Thread):
                 if not reservation:
                     return failure_transaction_not_found(tx_id)
 
-                if reservation.state == ReservationStatus.CANCELLED:
-                    # Idempotent cancel: already cancelled means same successful outcome.
-                    return build_success_response(transaction_id=tx_id)
-                
                 if reservation.state != ReservationStatus.ACTIVE:
                     return failure_transaction_not_active(tx_id, reservation.state.value)
 
@@ -395,11 +393,13 @@ class TransactionalThread(threading.Thread):
                                 self.server.seat_matrix.seats[section][row][col] = SeatState.AVAILABLE
                                 released_counts[section] += 1
 
-                # Release semaphore slots
-                reservation.state = ReservationStatus.CANCELLED
                 for section, count in released_counts.items():
                     if count > 0:
                         self.server.semaphore_mgr.release_multiple(section, count)
+
+                cleared_reservation = self.server.reservation_table.delete_reservation(tx_id)
+                if cleared_reservation is None:
+                    return error_internal(f"Reservation {tx_id} disappeared during cancel")
 
             self.server.global_log.append(
                 "CANCEL",

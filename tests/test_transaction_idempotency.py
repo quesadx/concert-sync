@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from src.client.concert_client import ConcertClient, TransactionNotActiveError
+from src.client.concert_client import ConcertClient, TransactionNotActiveError, TransactionNotFoundError
 from src.server.concert_server import ConcertServer
 from src.utils.enums import Section, ReservationStatus, SeatState
 
@@ -23,42 +23,36 @@ def concert_server_instance():
     server.stop()
 
 
-def test_confirm_is_idempotent(concert_server_instance):
+def test_confirm_removes_reservation_after_success(concert_server_instance):
     server, port = concert_server_instance
     client = ConcertClient(host="localhost", port=port)
 
     reserve_response = client.reserve_seat("VIP", 0, 0)
     tx_id = reserve_response["transaction_id"]
 
-    first_confirm = client.confirm(tx_id)
-    second_confirm = client.confirm(tx_id)
+    confirm_response = client.confirm(tx_id)
 
-    assert first_confirm["status"] == "SUCCESS"
-    assert second_confirm["status"] == "SUCCESS"
+    assert confirm_response["status"] == "SUCCESS"
 
     with server.reservation_table.mutex_table:
-        reservation = server.reservation_table.reservations[tx_id]
-        assert reservation.state == ReservationStatus.CONFIRMED
+        assert tx_id not in server.reservation_table.reservations
 
     assert server.seat_matrix.seats[Section.VIP][0][0] == SeatState.SOLD
 
 
-def test_cancel_is_idempotent(concert_server_instance):
+def test_cancel_removes_reservation_after_success(concert_server_instance):
     server, port = concert_server_instance
     client = ConcertClient(host="localhost", port=port)
 
     reserve_response = client.reserve_seat("VIP", 0, 1)
     tx_id = reserve_response["transaction_id"]
 
-    first_cancel = client.cancel(tx_id)
-    second_cancel = client.cancel(tx_id)
+    cancel_response = client.cancel(tx_id)
 
-    assert first_cancel["status"] == "SUCCESS"
-    assert second_cancel["status"] == "SUCCESS"
+    assert cancel_response["status"] == "SUCCESS"
 
     with server.reservation_table.mutex_table:
-        reservation = server.reservation_table.reservations[tx_id]
-        assert reservation.state == ReservationStatus.CANCELLED
+        assert tx_id not in server.reservation_table.reservations
 
     assert server.seat_matrix.seats[Section.VIP][0][1] == SeatState.AVAILABLE
 
@@ -77,11 +71,10 @@ def test_confirm_fails_after_expiration(concert_server_instance):
 
     server.monitor_thread.expire_reservation(tx_id)
 
-    with pytest.raises(TransactionNotActiveError):
+    with pytest.raises((TransactionNotActiveError, TransactionNotFoundError)):
         client.confirm(tx_id)
 
     with server.reservation_table.mutex_table:
-        reservation = server.reservation_table.reservations[tx_id]
-        assert reservation.state == ReservationStatus.EXPIRED
+        assert tx_id not in server.reservation_table.reservations
 
     assert server.seat_matrix.seats[Section.VIP][0][2] == SeatState.AVAILABLE
