@@ -354,6 +354,7 @@ class TransactionalThread(threading.Thread):
 
                             self.server.seat_matrix.seats[section][row][col] = SeatState.SOLD
 
+                reservation.state = ReservationStatus.CONFIRMED
                 cleared_reservation = self.server.reservation_table.delete_reservation(tx_id, locked=True)
                 if cleared_reservation is None:
                     return error_internal(f"Reservation {tx_id} disappeared during confirm")
@@ -391,10 +392,16 @@ class TransactionalThread(threading.Thread):
                 with self.server.mutex_manager.sections(ordered_sections):
                     for section in ordered_sections:
                         for row, col in seats_by_section[section]:
-                            if self.server.seat_matrix.seats[section][row][col] == SeatState.RESERVED:
-                                self.server.seat_matrix.seats[section][row][col] = SeatState.AVAILABLE
-                                released_counts[section] += 1
+                            seat_state = self.server.seat_matrix.seats[section][row][col]
+                            if seat_state != SeatState.RESERVED:
+                                return build_failure_response(
+                                    ErrorCode.SEAT_NOT_AVAILABLE,
+                                    f"Seat {section.name}({row},{col}) state is {seat_state.value}, expected RESERVED"
+                                )
+                            self.server.seat_matrix.seats[section][row][col] = SeatState.AVAILABLE
+                            released_counts[section] += 1
 
+                reservation.state = ReservationStatus.CANCELLED
                 for section, count in released_counts.items():
                     if count > 0:
                         self.server.semaphore_mgr.release_multiple(section, count)

@@ -495,6 +495,9 @@ class ConcertTextualApp(App):
         )
         self.query_one("#tx-input", Input).value = transaction_id
 
+        self.selected_map_section = section
+        self.query_one("#map-section-select", Select).value = section
+
         self._set_status(f"Reserved {section}({row},{col}) -> {transaction_id}")
         self._append_event(f"[RESERVE] tx={transaction_id} seat={section}({row},{col}) ttl={ttl}s")
         self._render_session_table()
@@ -520,6 +523,9 @@ class ConcertTextualApp(App):
             created_at=time.time(),
         )
         self.query_one("#tx-input", Input).value = transaction_id
+
+        self.selected_map_section = section
+        self.query_one("#map-section-select", Select).value = section
 
         self._set_status(f"Reserved {section}({row},{col}) via click -> {transaction_id}")
         self._append_event(f"[RESERVE_CLICK] tx={transaction_id} seat={section}({row},{col}) ttl={ttl}s")
@@ -636,6 +642,13 @@ class ConcertTextualApp(App):
             created_at=time.time(),
         )
         self.query_one("#tx-input", Input).value = transaction_id
+
+        reserved_seats = response.get("reserved_seats", [])
+        if reserved_seats:
+            first_section = reserved_seats[0].get("section")
+            if first_section in {"VIP", "PREFERENTIAL", "GENERAL"}:
+                self.selected_map_section = first_section
+                self.query_one("#map-section-select", Select).value = first_section
 
         self._set_status(f"Batch reserved -> {transaction_id}")
         self._append_event(f"[RESERVE_BATCH] tx={transaction_id} seats={seat_summary} ttl={ttl}s")
