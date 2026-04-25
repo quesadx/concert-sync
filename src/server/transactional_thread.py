@@ -271,36 +271,36 @@ class TransactionalThread(threading.Thread):
                             return failure_no_capacity(section.name)
 
                         acquired_semaphores[section] += 1
-            
-            # All validations passed, semaphores acquired: create transaction
-            # Flatten list of seats for transaction table
-            # For batch reserves spanning multiple sections, store as tuples (section, row, col)
-            # For single-section batches, store as tuples too for consistency
-            all_seats = []
-            for section in ordered_sections:
-                for row, col in sections_and_seats[section]:
-                    all_seats.append((section, row, col))
-            
-            # Create reservation transaction with all seats (as section-aware tuples)
-            primary_section = list(sections_and_seats.keys())[0] if len(sections_and_seats) == 1 else Section.VIP
-            try:
-                tx_id = self.server.reservation_table.add_reservation(
-                    primary_section,
-                    all_seats,
-                    locked=True,
-                )
-            except Exception:
-                # Reservation table write failed: rollback seat states and semaphores.
-                with self.server.mutex_manager.sections(ordered_sections):
+
+                # All validations passed, semaphores acquired: create transaction
+                # Flatten list of seats for transaction table
+                # For batch reserves spanning multiple sections, store as tuples (section, row, col)
+                # For single-section batches, store as tuples too for consistency
+                all_seats = []
+                for section in ordered_sections:
+                    for row, col in sections_and_seats[section]:
+                        all_seats.append((section, row, col))
+
+                # Create reservation transaction with all seats (as section-aware tuples)
+                primary_section = list(sections_and_seats.keys())[0] if len(sections_and_seats) == 1 else Section.VIP
+                try:
+                    tx_id = self.server.reservation_table.add_reservation(
+                        primary_section,
+                        all_seats,
+                        locked=True,
+                    )
+                except Exception:
+                    # Reservation table write failed: rollback seat states and semaphores.
                     for section, row, col in reserved_seats:
                         if self.server.seat_matrix.seats[section][row][col] == SeatState.RESERVED:
                             self.server.seat_matrix.seats[section][row][col] = SeatState.AVAILABLE
 
-                for section, count in acquired_semaphores.items():
-                    if count > 0:
-                        self.server.semaphore_mgr.release_multiple(section, count)
+                    for section, count in acquired_semaphores.items():
+                        if count > 0:
+                            self.server.semaphore_mgr.release_multiple(section, count)
 
-                raise
+                    raise
+
             
             self.server.global_log.append(
                 "RESERVE_BATCH",
