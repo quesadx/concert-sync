@@ -11,23 +11,27 @@ Proyecto
 Arquitectura
 - `src/server/concert_server.py`: inicializa servidor, `ListenerThread` y `MonitorThread`.
 - `src/server/listener_thread.py`: acepta conexiones y crea `TransactionalThread` por cliente.
-- `src/server/transactional_thread.py`: atiende acciones `RESERVE`, `CONFIRM`, `CANCEL` y `QUERY`.
-- `src/server/monitor_thread.py`: revisa cada 10 segundos reservas vencidas y las expira.
+- `src/server/transactional_thread.py`: atiende acciones `RESERVE`, `RESERVE_BATCH`, `CONFIRM`, `CANCEL`, `QUERY` y `QUERY_SEAT_MAP`.
+- `src/server/monitor_thread.py`: revisa cada segundo reservas vencidas y las expira.
 
 Datos y estados
 - `src/utils/enums.py` define `Section`, `SeatState` y `ReservationStatus`.
 - `src/utils/config.py` fija la capacidad de cada sección y `RESERVATION_TTL = 300`.
 - `src/shared_resources/seat_matrix.py`: matriz de asientos por sección con bloqueos por sección.
 - `src/shared_resources/semaphore_manager.py`: semáforos por sección para capacidad de reserva.
-- `src/shared_resources/reservation_table.py`: tabla de transacciones con `mutex_table` y condición.
+- `src/shared_resources/reservation_table.py`: tabla de transacciones con `mutex_table`, `delete_reservation()` y condiciones.
 - `src/shared_resources/global_log.py`: registro de eventos en `logs/system.log` con bloqueo.
+- `frontend_tui/app.py`: interfaz Textual para reservar asientos, ver el mapa y gestionar transacciones.
+- `frontend_tui/styles.tcss`: estilos de la TUI.
 
 Comportamiento clave
 - `RESERVE`: reserva un asiento si está `AVAILABLE`, bloquea sección, intenta adquirir semáforo, crea transacción activa.
-- `CONFIRM`: cambia asientos `RESERVED` a `SOLD` y marca la reserva como `CONFIRMED`.
-- `CANCEL`: libera asientos `RESERVED`, marca la reserva como `CANCELLED` y retorna semáforos.
-- `QUERY`: devuelve conteos de `total`, `available`, `reserved` y `sold` por sección.
-- Expiración: el monitor cambia reservas ACTIVAS a `EXPIRED` tras TTL y restituye recursos.
+- `RESERVE_BATCH`: reserva múltiples asientos de forma atómica, con rollback si uno falla.
+- `CONFIRM`: cambia asientos `RESERVED` a `SOLD` y elimina la reserva.
+- `CANCEL`: libera asientos `RESERVED`, devuelve semáforos y elimina la reserva.
+- `QUERY`: devuelve conteos de `available`, `reserved` y `sold` por sección.
+- `QUERY_SEAT_MAP`: devuelve el estado completo de la matriz de asientos.
+- Expiración: el monitor expira reservas ACTIVAS tras TTL y restituye recursos.
 
 Puntos de atención
 - El archivo `src/synchronization/lock_hierarcky.py` existe pero está vacío.

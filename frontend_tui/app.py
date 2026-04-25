@@ -387,33 +387,74 @@ class ConcertTextualApp(App):
 
     def _reserve_single_seat(self) -> None:
         try:
-            client = self._ensure_client()
+            self._ensure_client()
             section = self.query_one("#section-select", Select).value
             row = int(self.query_one("#row-input", Input).value.strip())
             col = int(self.query_one("#col-input", Input).value.strip())
-
-            response = self._request(lambda: client.reserve_seat(section, row, col))
-            transaction_id = response["transaction_id"]
-            ttl = int(response.get("ttl", 0))
-
-            self.sessions[transaction_id] = TrackedSession(
-                transaction_id=transaction_id,
-                operation_type="SINGLE",
-                seat_summary=f"{section}({row},{col})",
-                ttl_seconds=ttl,
-                created_at=time.time(),
-            )
-            self.query_one("#tx-input", Input).value = transaction_id
-
-            self._set_status(f"Reserved {section}({row},{col}) -> {transaction_id}")
-            self._append_event(f"[RESERVE] tx={transaction_id} seat={section}({row},{col}) ttl={ttl}s")
-            self._render_session_table()
-            self._refresh_query(silent=True)
         except ValueError:
             self._set_status("Row and column must be valid integers.")
+            return
         except ConcertClientError as exc:
             self._set_status(f"Reserve failed: {exc}")
             self._append_event(f"[RESERVE] Failed: {exc}")
+            return
+
+        self._set_status(f"Reserving {section}({row},{col})...")
+        self._append_event(f"[RESERVE] tx=start seat={section}({row},{col})")
+        threading.Thread(
+            target=self._reserve_single_seat_worker,
+            args=(section, row, col),
+            daemon=True,
+        ).start()
+
+    def _reserve_single_seat_worker(self, section: str, row: int, col: int) -> None:
+        try:
+            response = self._request(
+                lambda: self._ensure_client().reserve_seat(section, row, col)
+            )
+            try:
+                self.call_from_thread(
+                    self._reserve_single_seat_succeeded,
+                    section,
+                    row,
+                    col,
+                    response,
+                )
+            except Exception:
+                self._reserve_single_seat_succeeded(section, row, col, response)
+        except ConcertClientError as exc:
+            try:
+                self.call_from_thread(
+                    self._reserve_single_seat_failed,
+                    section,
+                    row,
+                    col,
+                    str(exc),
+                )
+            except Exception:
+                self._reserve_single_seat_failed(section, row, col, str(exc))
+
+    def _reserve_single_seat_succeeded(self, section: str, row: int, col: int, response) -> None:
+        transaction_id = response["transaction_id"]
+        ttl = int(response.get("ttl", 0))
+
+        self.sessions[transaction_id] = TrackedSession(
+            transaction_id=transaction_id,
+            operation_type="SINGLE",
+            seat_summary=f"{section}({row},{col})",
+            ttl_seconds=ttl,
+            created_at=time.time(),
+        )
+        self.query_one("#tx-input", Input).value = transaction_id
+
+        self._set_status(f"Reserved {section}({row},{col}) -> {transaction_id}")
+        self._append_event(f"[RESERVE] tx={transaction_id} seat={section}({row},{col}) ttl={ttl}s")
+        self._render_session_table()
+        self._refresh_query(silent=True)
+
+    def _reserve_single_seat_failed(self, section: str, row: int, col: int, error_message: str) -> None:
+        self._set_status(f"Reserve failed: {error_message}")
+        self._append_event(f"[RESERVE] Failed: {error_message}")
 
     def _reserve_click_submit(self, section: str, row: int, col: int):
         client = self._ensure_client()
@@ -517,42 +558,96 @@ class ConcertTextualApp(App):
             self._append_event(f"[RESERVE_BATCH] Failed: {exc}")
 
     def _confirm_transaction(self) -> None:
+        tx_id = self._resolve_transaction_id_from_input()
+        if tx_id is None:
+            return
+
         try:
-            client = self._ensure_client()
-            tx_id = self._resolve_transaction_id_from_input()
-            if tx_id is None:
-                return
-
-            self._request(lambda: client.confirm(tx_id))
-            self._set_status(f"Confirmed {tx_id}")
-            self._append_event(f"[CONFIRM] tx={tx_id}")
-
-            if tx_id in self.sessions:
-                self.sessions[tx_id].state = "CONFIRMED"
-            self._render_session_table()
-            self._refresh_query(silent=True)
+            self._ensure_client()
         except ConcertClientError as exc:
             self._set_status(f"Confirm failed: {exc}")
             self._append_event(f"[CONFIRM] Failed: {exc}")
+            return
+
+        self._set_status(f"Confirming {tx_id}...")
+        self._append_event(f"[CONFIRM] tx={tx_id} started")
+        threading.Thread(
+            target=self._confirm_transaction_worker,
+            args=(tx_id,),
+            daemon=True,
+        ).start()
 
     def _cancel_transaction(self) -> None:
+        tx_id = self._resolve_transaction_id_from_input()
+        if tx_id is None:
+            return
+
         try:
-            client = self._ensure_client()
-            tx_id = self._resolve_transaction_id_from_input()
-            if tx_id is None:
-                return
-
-            self._request(lambda: client.cancel(tx_id))
-            self._set_status(f"Cancelled {tx_id}")
-            self._append_event(f"[CANCEL] tx={tx_id}")
-
-            if tx_id in self.sessions:
-                self.sessions[tx_id].state = "CANCELLED"
-            self._render_session_table()
-            self._refresh_query(silent=True)
+            self._ensure_client()
         except ConcertClientError as exc:
             self._set_status(f"Cancel failed: {exc}")
             self._append_event(f"[CANCEL] Failed: {exc}")
+            return
+
+        self._set_status(f"Cancelling {tx_id}...")
+        self._append_event(f"[CANCEL] tx={tx_id} started")
+        threading.Thread(
+            target=self._cancel_transaction_worker,
+            args=(tx_id,),
+            daemon=True,
+        ).start()
+
+    def _confirm_transaction_worker(self, tx_id: str) -> None:
+        try:
+            client = self._ensure_client()
+            self._request(lambda: client.confirm(tx_id))
+            try:
+                self.call_from_thread(self._confirm_transaction_succeeded, tx_id)
+            except Exception:
+                self._confirm_transaction_succeeded(tx_id)
+        except ConcertClientError as exc:
+            try:
+                self.call_from_thread(self._confirm_transaction_failed, tx_id, str(exc))
+            except Exception:
+                self._confirm_transaction_failed(tx_id, str(exc))
+
+    def _cancel_transaction_worker(self, tx_id: str) -> None:
+        try:
+            client = self._ensure_client()
+            self._request(lambda: client.cancel(tx_id))
+            try:
+                self.call_from_thread(self._cancel_transaction_succeeded, tx_id)
+            except Exception:
+                self._cancel_transaction_succeeded(tx_id)
+        except ConcertClientError as exc:
+            try:
+                self.call_from_thread(self._cancel_transaction_failed, tx_id, str(exc))
+            except Exception:
+                self._cancel_transaction_failed(tx_id, str(exc))
+
+    def _confirm_transaction_succeeded(self, tx_id: str) -> None:
+        self._set_status(f"Confirmed {tx_id}")
+        self._append_event(f"[CONFIRM] tx={tx_id}")
+        if tx_id in self.sessions:
+            self.sessions[tx_id].state = "CONFIRMED"
+        self._render_session_table()
+        self._refresh_query(silent=True)
+
+    def _confirm_transaction_failed(self, tx_id: str, error_message: str) -> None:
+        self._set_status(f"Confirm failed: {error_message}")
+        self._append_event(f"[CONFIRM] Failed: {error_message}")
+
+    def _cancel_transaction_succeeded(self, tx_id: str) -> None:
+        self._set_status(f"Cancelled {tx_id}")
+        self._append_event(f"[CANCEL] tx={tx_id}")
+        if tx_id in self.sessions:
+            self.sessions[tx_id].state = "CANCELLED"
+        self._render_session_table()
+        self._refresh_query(silent=True)
+
+    def _cancel_transaction_failed(self, tx_id: str, error_message: str) -> None:
+        self._set_status(f"Cancel failed: {error_message}")
+        self._append_event(f"[CANCEL] Failed: {error_message}")
 
     def _refresh_tracked_ttls(self) -> None:
         now = time.time()
