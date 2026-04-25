@@ -409,7 +409,6 @@ class TransactionalThread(threading.Thread):
                 cleared_reservation = self.server.reservation_table.delete_reservation(tx_id, locked=True)
                 if cleared_reservation is None:
                     return error_internal(f"Reservation {tx_id} disappeared during cancel")
-
             self.server.global_log.append(
                 "CANCEL",
                 f"TX:{tx_id} cancelled sections_released:{len(released_counts)}",
