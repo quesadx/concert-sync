@@ -57,7 +57,7 @@ class MonitorThread(threading.Thread):
                             self.server.seat_matrix.seats[section][row][col] = SeatState.AVAILABLE
                             released_counts[section] += 1
 
-            cleared_reservation = self.server.reservation_table.delete_reservation(tx_id)
+            cleared_reservation = self.server.reservation_table.delete_reservation(tx_id, locked=True)
             if cleared_reservation is None:
                 return
 

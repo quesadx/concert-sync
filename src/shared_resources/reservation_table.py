@@ -22,7 +22,22 @@ class ReservationTable:
         self.mutex_table = threading.Lock()
         self.cond_var = threading.Condition(self.mutex_table)
 
-    def add_reservation(self, section, seats, seat_id=None):
+    def add_reservation(self, section, seats, seat_id=None, *, locked: bool = False):
+        if locked:
+            tx_id = str(uuid.uuid4())
+            reservation = Reservation(
+                transaction_id=tx_id,
+                section=section,
+                seats=seats,
+                seat_id=seat_id,
+                timestamp_creation=time.time(),
+                ttl_secs=RESERVATION_TTL,
+                state=ReservationStatus.ACTIVE
+            )
+            self.reservations[tx_id] = reservation
+            self.cond_var.notify()
+            return tx_id
+
         with self.mutex_table:
             tx_id = str(uuid.uuid4())
             reservation = Reservation(
@@ -52,6 +67,9 @@ class ReservationTable:
         with self.mutex_table:
             return self.reservations.get(tx_id)
 
-    def delete_reservation(self, tx_id):
+    def delete_reservation(self, tx_id, *, locked: bool = False):
+        if locked:
+            return self.reservations.pop(tx_id, None)
+
         with self.mutex_table:
             return self.reservations.pop(tx_id, None)

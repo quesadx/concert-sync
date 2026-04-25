@@ -129,7 +129,7 @@ class TransactionalThread(threading.Thread):
             if row >= max_rows or col >= max_cols:
                 return error_seat_out_of_bounds(section_str, row, col, max_rows, max_cols)
 
-            with self.server.mutex_manager.sections([section]):
+            with self.server.mutex_manager.table_and_sections([section]):
                 seats = self.server.seat_matrix.seats[section]
 
                 # Validate seat state
@@ -147,12 +147,13 @@ class TransactionalThread(threading.Thread):
                     seats[row][col] = SeatState.AVAILABLE
                     return failure_no_capacity(section_str)
 
-            # Create reservation transaction for this selected seat
-            tx_id = self.server.reservation_table.add_reservation(
-                section,
-                [(row, col)],
-                seat_id=(section, row, col),
-            )
+                # Create reservation transaction for this selected seat
+                tx_id = self.server.reservation_table.add_reservation(
+                    section,
+                    [(row, col)],
+                    seat_id=(section, row, col),
+                    locked=True,
+                )
 
             self.server.global_log.append(
                 "RESERVE",
@@ -232,7 +233,7 @@ class TransactionalThread(threading.Thread):
             reserved_seats = []  # [(section, row, col), ...]
             acquired_semaphores = defaultdict(int)
 
-            with self.server.mutex_manager.sections(ordered_sections):
+            with self.server.mutex_manager.table_and_sections(ordered_sections):
                 # Validate seat availability first (no state changes yet)
                 for section in ordered_sections:
                     for row, col in sections_and_seats[section]:
@@ -285,7 +286,8 @@ class TransactionalThread(threading.Thread):
             try:
                 tx_id = self.server.reservation_table.add_reservation(
                     primary_section,
-                    all_seats
+                    all_seats,
+                    locked=True,
                 )
             except Exception:
                 # Reservation table write failed: rollback seat states and semaphores.
@@ -352,7 +354,7 @@ class TransactionalThread(threading.Thread):
 
                             self.server.seat_matrix.seats[section][row][col] = SeatState.SOLD
 
-                cleared_reservation = self.server.reservation_table.delete_reservation(tx_id)
+                cleared_reservation = self.server.reservation_table.delete_reservation(tx_id, locked=True)
                 if cleared_reservation is None:
                     return error_internal(f"Reservation {tx_id} disappeared during confirm")
 
@@ -397,7 +399,7 @@ class TransactionalThread(threading.Thread):
                     if count > 0:
                         self.server.semaphore_mgr.release_multiple(section, count)
 
-                cleared_reservation = self.server.reservation_table.delete_reservation(tx_id)
+                cleared_reservation = self.server.reservation_table.delete_reservation(tx_id, locked=True)
                 if cleared_reservation is None:
                     return error_internal(f"Reservation {tx_id} disappeared during cancel")
 
