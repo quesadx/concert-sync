@@ -12,7 +12,7 @@ class MonitorThread(threading.Thread):
 
     def run(self):
         while self.server.running:
-            time.sleep(10)
+            time.sleep(1)
             expired = self.server.reservation_table.get_expired_reservations()
 
             for tx_id in expired:
@@ -46,18 +46,16 @@ class MonitorThread(threading.Thread):
             if not reservation or reservation.state != ReservationStatus.ACTIVE:
                 return
 
-            seats_by_section = self._group_reservation_seats_by_section(reservation)
-            ordered_sections = self._ordered_sections(seats_by_section.keys())
-            released_counts = {section: 0 for section in ordered_sections}
-
-            with self.server.mutex_manager.sections(ordered_sections):
+                reservation.state = ReservationStatus.EXPIRED
                 for section in ordered_sections:
                     for row, col in seats_by_section[section]:
                         if self.server.seat_matrix.seats[section][row][col] == SeatState.RESERVED:
                             self.server.seat_matrix.seats[section][row][col] = SeatState.AVAILABLE
                             released_counts[section] += 1
 
-            reservation.state = ReservationStatus.EXPIRED
+            cleared_reservation = self.server.reservation_table.delete_reservation(tx_id, locked=True)
+            if cleared_reservation is None:
+                return
 
         for section, count in released_counts.items():
             if count > 0:

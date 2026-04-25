@@ -129,7 +129,7 @@ class TransactionalThread(threading.Thread):
             if row >= max_rows or col >= max_cols:
                 return error_seat_out_of_bounds(section_str, row, col, max_rows, max_cols)
 
-            with self.server.mutex_manager.sections([section]):
+            with self.server.mutex_manager.table_and_sections([section]):
                 seats = self.server.seat_matrix.seats[section]
 
                 # Validate seat state
@@ -147,8 +147,13 @@ class TransactionalThread(threading.Thread):
                     seats[row][col] = SeatState.AVAILABLE
                     return failure_no_capacity(section_str)
 
-            # Create reservation transaction
-            tx_id = self.server.reservation_table.add_reservation(section, [(row, col)])
+                # Create reservation transaction for this selected seat
+                tx_id = self.server.reservation_table.add_reservation(
+                    section,
+                    [(row, col)],
+                    seat_id=(section, row, col),
+                    locked=True,
+                )
 
             self.server.global_log.append(
                 "RESERVE",
@@ -228,7 +233,7 @@ class TransactionalThread(threading.Thread):
             reserved_seats = []  # [(section, row, col), ...]
             acquired_semaphores = defaultdict(int)
 
-            with self.server.mutex_manager.sections(ordered_sections):
+            with self.server.mutex_manager.table_and_sections(ordered_sections):
                 # Validate seat availability first (no state changes yet)
                 for section in ordered_sections:
                     for row, col in sections_and_seats[section]:
@@ -266,35 +271,36 @@ class TransactionalThread(threading.Thread):
                             return failure_no_capacity(section.name)
 
                         acquired_semaphores[section] += 1
-            
-            # All validations passed, semaphores acquired: create transaction
-            # Flatten list of seats for transaction table
-            # For batch reserves spanning multiple sections, store as tuples (section, row, col)
-            # For single-section batches, store as tuples too for consistency
-            all_seats = []
-            for section in ordered_sections:
-                for row, col in sections_and_seats[section]:
-                    all_seats.append((section, row, col))
-            
-            # Create reservation transaction with all seats (as section-aware tuples)
-            primary_section = list(sections_and_seats.keys())[0] if len(sections_and_seats) == 1 else Section.VIP
-            try:
-                tx_id = self.server.reservation_table.add_reservation(
-                    primary_section,
-                    all_seats
-                )
-            except Exception:
-                # Reservation table write failed: rollback seat states and semaphores.
-                with self.server.mutex_manager.sections(ordered_sections):
+
+                # All validations passed, semaphores acquired: create transaction
+                # Flatten list of seats for transaction table
+                # For batch reserves spanning multiple sections, store as tuples (section, row, col)
+                # For single-section batches, store as tuples too for consistency
+                all_seats = []
+                for section in ordered_sections:
+                    for row, col in sections_and_seats[section]:
+                        all_seats.append((section, row, col))
+
+                # Create reservation transaction with all seats (as section-aware tuples)
+                primary_section = list(sections_and_seats.keys())[0] if len(sections_and_seats) == 1 else Section.VIP
+                try:
+                    tx_id = self.server.reservation_table.add_reservation(
+                        primary_section,
+                        all_seats,
+                        locked=True,
+                    )
+                except Exception:
+                    # Reservation table write failed: rollback seat states and semaphores.
                     for section, row, col in reserved_seats:
                         if self.server.seat_matrix.seats[section][row][col] == SeatState.RESERVED:
                             self.server.seat_matrix.seats[section][row][col] = SeatState.AVAILABLE
 
-                for section, count in acquired_semaphores.items():
-                    if count > 0:
-                        self.server.semaphore_mgr.release_multiple(section, count)
+                    for section, count in acquired_semaphores.items():
+                        if count > 0:
+                            self.server.semaphore_mgr.release_multiple(section, count)
 
-                raise
+                    raise
+
             
             self.server.global_log.append(
                 "RESERVE_BATCH",
@@ -329,10 +335,6 @@ class TransactionalThread(threading.Thread):
                 if not reservation:
                     return failure_transaction_not_found(tx_id)
 
-                if reservation.state == ReservationStatus.CONFIRMED:
-                    # Idempotent confirm: already confirmed means same successful outcome.
-                    return build_success_response(transaction_id=tx_id)
-                
                 if reservation.state != ReservationStatus.ACTIVE:
                     return failure_transaction_not_active(tx_id, reservation.state.value)
 
@@ -353,6 +355,9 @@ class TransactionalThread(threading.Thread):
                             self.server.seat_matrix.seats[section][row][col] = SeatState.SOLD
 
                 reservation.state = ReservationStatus.CONFIRMED
+                cleared_reservation = self.server.reservation_table.delete_reservation(tx_id, locked=True)
+                if cleared_reservation is None:
+                    return error_internal(f"Reservation {tx_id} disappeared during confirm")
 
             self.server.global_log.append("CONFIRM", f"TX:{tx_id} confirmed")
             return build_success_response(transaction_id=tx_id)
@@ -377,10 +382,6 @@ class TransactionalThread(threading.Thread):
                 if not reservation:
                     return failure_transaction_not_found(tx_id)
 
-                if reservation.state == ReservationStatus.CANCELLED:
-                    # Idempotent cancel: already cancelled means same successful outcome.
-                    return build_success_response(transaction_id=tx_id)
-                
                 if reservation.state != ReservationStatus.ACTIVE:
                     return failure_transaction_not_active(tx_id, reservation.state.value)
 
@@ -391,16 +392,23 @@ class TransactionalThread(threading.Thread):
                 with self.server.mutex_manager.sections(ordered_sections):
                     for section in ordered_sections:
                         for row, col in seats_by_section[section]:
-                            if self.server.seat_matrix.seats[section][row][col] == SeatState.RESERVED:
-                                self.server.seat_matrix.seats[section][row][col] = SeatState.AVAILABLE
-                                released_counts[section] += 1
+                            seat_state = self.server.seat_matrix.seats[section][row][col]
+                            if seat_state != SeatState.RESERVED:
+                                return build_failure_response(
+                                    ErrorCode.SEAT_NOT_AVAILABLE,
+                                    f"Seat {section.name}({row},{col}) state is {seat_state.value}, expected RESERVED"
+                                )
+                            self.server.seat_matrix.seats[section][row][col] = SeatState.AVAILABLE
+                            released_counts[section] += 1
 
-                # Release semaphore slots
                 reservation.state = ReservationStatus.CANCELLED
                 for section, count in released_counts.items():
                     if count > 0:
                         self.server.semaphore_mgr.release_multiple(section, count)
 
+                cleared_reservation = self.server.reservation_table.delete_reservation(tx_id, locked=True)
+                if cleared_reservation is None:
+                    return error_internal(f"Reservation {tx_id} disappeared during cancel")
             self.server.global_log.append(
                 "CANCEL",
                 f"TX:{tx_id} cancelled sections_released:{len(released_counts)}",
