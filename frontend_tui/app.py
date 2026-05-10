@@ -77,7 +77,7 @@ class LogTailer:
 
 
 class ConcertTextualApp(App):
-    CSS_PATH = "styles.tcss"
+    CSS_PATH = str(Path(__file__).resolve().with_name("styles.tcss"))
     TITLE = "ConcertSync Terminal Console"
     SUB_TITLE = "Textual client for reservations and live TTL monitoring"
     BINDINGS = [

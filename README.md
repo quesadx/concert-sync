@@ -53,6 +53,24 @@ If you are not using Nix:
 python -m frontend_tui
 ```
 
+## macOS Launcher
+
+For a Mac user, the easiest option is the bundled launcher at [run_concert_sync.command](run_concert_sync.command).
+
+Double-click it in Finder, or run it from Terminal:
+
+```bash
+bash run_concert_sync.command
+```
+
+By default it starts the server and then opens the TUI in the same Terminal window. It creates a local `.venv` on first run and installs the small Python dependencies it needs.
+
+## Windows Executable
+
+If you want a single `.exe` for a Windows desktop, build it on Windows with [scripts/build_windows_exe.ps1](scripts/build_windows_exe.ps1).
+
+The script creates `dist/ConcertSync.exe`, which starts the server and the TUI together in one console window.
+
 ## Using the Client
 
 The client sends JSON requests to the server. Supported actions:
