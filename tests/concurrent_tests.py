@@ -166,8 +166,115 @@ def test_concurrent_reservations(iterations=ITERATIONS, threads_per_section=THRE
         server.stop()
 
 
+def test_expiration_releases_seats_under_concurrent_reserve(num_clients=5):
+    """
+    Verify that expiration releases all seats under concurrent RESERVE load.
+
+    Uses threading.Barrier to synchronize concurrent reservation attempts,
+    then forces all sessions to expire (TTL=2, last_activity set to past) and
+    verifies MonitorThread releases all seats and restores semaphore counts.
+    """
+    import threading
+    import time
+
+    host = "localhost"
+    port = random.randint(12000, 18000)
+
+    server = ConcertServer(host=host, port=port)
+    server.start()
+
+    try:
+        _wait_for_server(host, port)
+
+        # Create clients with unique user IDs
+        clients = [
+            ConcertClient(user_id=f"stress_user_{i}", port=port)
+            for i in range(num_clients)
+        ]
+
+        # Pre-compute seat assignments (spread across sections)
+        all_sections = list(Section)
+        seat_assignments = []
+        for i in range(num_clients):
+            section = all_sections[i % len(all_sections)]
+            cols = SECTION_CONFIG.get(section, {}).get("cols", 10)
+            num_seats = (i % 3) + 1  # 1, 2, or 3 seats per user
+            seats = [(section, 0, j) for j in range(min(num_seats, cols))]
+            seat_assignments.append(seats)
+
+        barrier = threading.Barrier(num_clients)
+        results_lock = threading.Lock()
+        reservation_results = []
+
+        def reserve_all(cl, seats, br):
+            br.wait()
+            for section, row, col in seats:
+                try:
+                    cl.reserve_seat(section.name, row, col)
+                    with results_lock:
+                        reservation_results.append((cl.user_id, section.name, row, col, "SUCCESS"))
+                except Exception as e:
+                    with results_lock:
+                        reservation_results.append((cl.user_id, section.name, row, col, str(e)))
+
+        threads = []
+        for i in range(num_clients):
+            t = threading.Thread(
+                target=reserve_all,
+                args=(clients[i], seat_assignments[i], barrier),
+            )
+            threads.append(t)
+            t.start()
+
+        for t in threads:
+            t.join()
+
+        # Force all sessions to expire immediately by setting TTL=2 and
+        # pushing last_activity into the past. This exercises the real
+        # MonitorThread path (poll + expire_session + seat release).
+        for session in server.session_manager._sessions.values():
+            session.ttl_secs = 2
+            session.last_activity = time.time() - 3
+
+        # Wait for MonitorThread to poll and expire sessions (poll=1s, 4s safe margin)
+        time.sleep(4)
+
+        # Verify invariants first (capacity + semaphore checks)
+        query_response = ConcertClient(host=host, port=port).query()
+        _check_invariants(server, query_response)
+
+        # Assert no leaked RESERVED seats
+        for section in Section:
+            stats = query_response["sections"][section.name]
+            assert stats["reserved"] == 0, (
+                f"Section {section.name} has {stats['reserved']} RESERVED seats "
+                f"after expiration (expected 0)"
+            )
+
+        # Assert semaphore counts restored to full capacity
+        for section in Section:
+            config = SECTION_CONFIG.get(section, {})
+            capacity = config.get("rows", 0) * config.get("cols", 0)
+            sem_value = server.semaphore_mgr.s_sections[section]._value
+            assert sem_value == capacity, (
+                f"Semaphore for {section.name} has value {sem_value}, "
+                f"expected {capacity} (not restored after expiry)"
+            )
+
+        successes = sum(1 for r in reservation_results if r[4] == "SUCCESS")
+        total = len(reservation_results)
+        print(
+            f"Expiration stress test: num_clients={num_clients}, "
+            f"reservations={total}, successes={successes}"
+        )
+
+    finally:
+        server.stop()
+
+
 if __name__ == "__main__":
     try:
         test_concurrent_reservations()
+        test_expiration_releases_seats_under_concurrent_reserve()
     except KeyboardInterrupt:
         print("Interrupted by user")
