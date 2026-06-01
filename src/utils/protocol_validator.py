@@ -341,6 +341,14 @@ def validate_request(data: str) -> Tuple[bool, Optional[str], Optional[Dict[str,
     if not is_valid:
         return False, msg, None
     
+    # Step 2.5: Validate user_id presence (skipped for QUERY / QUERY_SEAT_MAP)
+    if action not in ("QUERY", "QUERY_SEAT_MAP"):
+        if "user_id" not in parsed:
+            return False, "Missing required field: user_id", None
+        user_id = parsed["user_id"]
+        if not isinstance(user_id, str) or not user_id.strip():
+            return False, "Field 'user_id' must be a non-empty string", None
+    
     # Step 3: Validate action-specific payload
     if action == "RESERVE":
         is_valid, msg = validate_reserve_payload(parsed)

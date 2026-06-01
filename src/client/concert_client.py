@@ -68,7 +68,8 @@ ERROR_CODE_TO_EXCEPTION = {
 
 
 class ConcertClient:
-    def __init__(self, host='localhost', port=9999):
+    def __init__(self, user_id: str = "", host='localhost', port=9999):
+        self.user_id = user_id
         self.host = host
         self.port = port
 
@@ -85,6 +86,7 @@ class ConcertClient:
         Raises:
             ConcertClientError: If network or protocol error occurs
         """
+        request["user_id"] = self.user_id
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect((self.host, self.port))

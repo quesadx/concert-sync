@@ -2,6 +2,7 @@ import socket
 
 from src.server.listener_thread import ListenerThread
 from src.server.monitor_thread import MonitorThread
+from src.server.session_manager import SessionManager
 from src.shared_resources.global_log import GlobalLog
 from src.shared_resources.reservation_table import ReservationTable
 from src.shared_resources.seat_matrix import SeatMatrix
@@ -19,6 +20,7 @@ class ConcertServer:
         self.reservation_table = ReservationTable()
         self.global_log = GlobalLog()
         self.mutex_manager = MutexManager(self.seat_matrix, self.reservation_table)
+        self.session_manager = SessionManager()
 
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

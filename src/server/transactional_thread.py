@@ -110,6 +110,7 @@ class TransactionalThread(threading.Thread):
             return build_error_response(ErrorCode.INVALID_PAYLOAD, error_msg)
 
         try:
+            user_id = request["user_id"]
             section_str = request["section"]
             row = int(request["row"])
             col = int(request["col"])
@@ -129,6 +130,8 @@ class TransactionalThread(threading.Thread):
             if row >= max_rows or col >= max_cols:
                 return error_seat_out_of_bounds(section_str, row, col, max_rows, max_cols)
 
+            session = self.server.session_manager.get_or_create(user_id)
+
             with self.server.mutex_manager.table_and_sections([section]):
                 seats = self.server.seat_matrix.seats[section]
 
@@ -147,20 +150,17 @@ class TransactionalThread(threading.Thread):
                     seats[row][col] = SeatState.AVAILABLE
                     return failure_no_capacity(section_str)
 
-                # Create reservation transaction for this selected seat
-                tx_id = self.server.reservation_table.add_reservation(
-                    section,
-                    [(row, col)],
-                    seat_id=(section, row, col),
-                    locked=True,
-                )
+                # Add seat to session and reset TTL
+                session.seats.append((section, row, col))
+                session.reset_ttl()
 
+            session_id = session.session_id
             self.server.global_log.append(
                 "RESERVE",
-                f"TX:{tx_id} Section:{section.name} Seat:[{row},{col}]",
+                f"Session:{session_id} Section:{section.name} Seat:[{row},{col}]",
             )
 
-            return build_success_response(transaction_id=tx_id, ttl=RESERVATION_TTL)
+            return build_success_response(transaction_id=session_id, ttl=RESERVATION_TTL)
 
         except Exception as e:
             # Attempt rollback if something went wrong
