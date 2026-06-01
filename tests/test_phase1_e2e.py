@@ -26,15 +26,12 @@ def concert_server():
     server.stop()
 
 
-@pytest.mark.skip(reason="Plan 1 T2 will implement")
 class TestPhase1SessionTTL:
-    @pytest.mark.skip(reason="Plan 1 T2 will implement")
     def test_client_accepts_user_id(self):
         """ConcertClient accepts user_id parameter in __init__."""
         c = ConcertClient(user_id="TestUser")
         assert c.user_id == "TestUser"
 
-    @pytest.mark.skip(reason="Plan 1 T2 will implement")
     def test_reserve_returns_session_id(self, concert_server):
         """RESERVE with user_id returns a session_id as transaction_id."""
         client = ConcertClient(user_id="TestUser", port=concert_server.port)
@@ -43,7 +40,6 @@ class TestPhase1SessionTTL:
         assert "transaction_id" in response
         assert len(response["transaction_id"]) > 0
 
-    @pytest.mark.skip(reason="Plan 1 T2 will implement")
     def test_same_user_gets_same_session_id(self, concert_server):
         """Two RESERVE calls from same user return same session_id."""
         client = ConcertClient(user_id="TestUser", port=concert_server.port)
@@ -51,14 +47,12 @@ class TestPhase1SessionTTL:
         r2 = client.reserve_seat("VIP", 0, 1)
         assert r1["transaction_id"] == r2["transaction_id"]
 
-    @pytest.mark.skip(reason="Plan 1 T2 will implement")
     def test_ttl_field_in_response(self, concert_server):
         """TTL field equals RESERVATION_TTL."""
         client = ConcertClient(user_id="TestUser", port=concert_server.port)
         response = client.reserve_seat("VIP", 0, 0)
         assert response["ttl"] == RESERVATION_TTL
 
-    @pytest.mark.skip(reason="Plan 1 T2 will implement")
     def test_query_without_user_id_succeeds(self, concert_server):
         """QUERY and QUERY_SEAT_MAP work without user_id (200, not ERR_INVALID_PAYLOAD)."""
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:

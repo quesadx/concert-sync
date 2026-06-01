@@ -497,17 +497,29 @@ class ConcertTextualApp(App):
             except Exception:
                 self._reserve_single_seat_failed(section, row, col, str(exc))
 
+    def _track_session(self, transaction_id: str, operation_type: str, seat_summary: str, ttl: int) -> TrackedSession:
+        if transaction_id in self.sessions:
+            existing = self.sessions[transaction_id]
+            existing.seat_summary = existing.seat_summary + ", " + seat_summary if existing.seat_summary else seat_summary
+            existing.created_at = time.time()
+            existing.state = "ACTIVE"
+            existing.ttl_seconds = ttl
+            return existing
+        session = TrackedSession(
+            transaction_id=transaction_id,
+            operation_type=operation_type,
+            seat_summary=seat_summary,
+            ttl_seconds=ttl,
+            created_at=time.time(),
+        )
+        self.sessions[transaction_id] = session
+        return session
+
     def _reserve_single_seat_succeeded(self, section: str, row: int, col: int, response) -> None:
         transaction_id = response["transaction_id"]
         ttl = int(response.get("ttl", 0))
 
-        self.sessions[transaction_id] = TrackedSession(
-            transaction_id=transaction_id,
-            operation_type="SINGLE",
-            seat_summary=f"{section}({row},{col})",
-            ttl_seconds=ttl,
-            created_at=time.time(),
-        )
+        self._track_session(transaction_id, "SINGLE", f"{section}({row},{col})", ttl)
         self.query_one("#tx-input", Input).value = transaction_id
 
         self.selected_map_section = section
@@ -530,13 +542,7 @@ class ConcertTextualApp(App):
         transaction_id = response["transaction_id"]
         ttl = int(response.get("ttl", 0))
 
-        self.sessions[transaction_id] = TrackedSession(
-            transaction_id=transaction_id,
-            operation_type="CLICK",
-            seat_summary=f"{section}({row},{col})",
-            ttl_seconds=ttl,
-            created_at=time.time(),
-        )
+        self._track_session(transaction_id, "CLICK", f"{section}({row},{col})", ttl)
         self.query_one("#tx-input", Input).value = transaction_id
 
         self.selected_map_section = section
@@ -649,13 +655,7 @@ class ConcertTextualApp(App):
         transaction_id = response["transaction_id"]
         ttl = int(response.get("ttl", 0))
 
-        self.sessions[transaction_id] = TrackedSession(
-            transaction_id=transaction_id,
-            operation_type="BATCH",
-            seat_summary=seat_summary,
-            ttl_seconds=ttl,
-            created_at=time.time(),
-        )
+        self._track_session(transaction_id, "BATCH", seat_summary, ttl)
         self.query_one("#tx-input", Input).value = transaction_id
 
         reserved_seats = response.get("reserved_seats", [])
