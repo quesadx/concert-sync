@@ -11,6 +11,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, DataTable, Footer, Header, Input, RichLog, Select, Static
 
+from frontend_tui.login_screen import LoginScreen
 from src.client.concert_client import ConcertClient, ConcertClientError
 from src.utils.config import SECTION_CONFIG
 from src.utils.enums import Section
@@ -88,6 +89,7 @@ class ConcertTextualApp(App):
     def __init__(self):
         super().__init__()
         self.client: Optional[ConcertClient] = None
+        self.user_id: Optional[str] = None
         self.connected_host: str = "localhost"
         self.connected_port: int = 9999
         self.sessions: Dict[str, TrackedSession] = {}
@@ -188,6 +190,19 @@ class ConcertTextualApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        self.push_screen(LoginScreen(), self._on_login)
+
+    def _on_login(self, user_id: str) -> None:
+        self.user_id = user_id
+        self.title = f"ConcertSync — {user_id}"
+        self.client = ConcertClient(
+            user_id=user_id,
+            host=self.connected_host,
+            port=self.connected_port,
+        )
+        self._setup_main_ui()
+
+    def _setup_main_ui(self) -> None:
         section_table = self.query_one("#section-table", DataTable)
         section_table.add_columns("Section", "Available", "Reserved", "Sold")
 
