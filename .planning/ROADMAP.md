@@ -20,11 +20,18 @@
 5. Expired session releases all selected seats atomically
 6. Existing reservation logic preserved — only timer ownership changes
 
-**Plans:** 2 plans
+**Plans:** 2 plans in 2 waves
 
-Plans:
-- [ ] `01-01-PLAN.md` — LoginScreen + SessionManager + user_id injection + session-aware RESERVE
-- [ ] `01-02-PLAN.md` — Session-aware batch/confirm/cancel + MonitorThread session expiry + TUI TTL tracking
+**Wave 1** *(foundation — no dependencies)*
+- [x] `01-01-PLAN.md` — LoginScreen + SessionManager + user_id injection + session-aware RESERVE
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [x] `01-02-PLAN.md` — Session-aware batch/confirm/cancel + MonitorThread session expiry + TUI TTL tracking
+
+**Cross-cutting constraints:**
+- All plans: Session ownership verification (`session.user_id == request.user_id`) on every CONFIRM/CANCEL
+- All plans: SessionManager lock protects against concurrent get_or_create race
+- All plans: Old per-seat TTL expiry code remains untouched (Phase 2 fixes it)
 
 **Risks:**
 - Session TTL must not break existing reservation flow
