@@ -13,31 +13,55 @@ class MonitorThread(threading.Thread):
     def run(self):
         while self.server.running:
             time.sleep(1)
-            expired = self.server.reservation_table.get_expired_reservations()
+            expired = self.server.session_manager.get_expired()
 
-            for tx_id in expired:
-                self.expire_reservation(tx_id)
+            for session in expired:
+                self.expire_session(session)
 
-    def _group_reservation_seats_by_section(self, reservation):
+    def _group_seats_by_section(self, seats):
         seats_by_section = {}
-
-        for seat_info in reservation.seats:
-            if len(seat_info) == 3:
-                section, row, col = seat_info
-            else:
-                section = reservation.section
-                row, col = seat_info
-
+        for section, row, col in seats:
             if section not in seats_by_section:
                 seats_by_section[section] = []
             seats_by_section[section].append((row, col))
-
         return seats_by_section
 
     def _ordered_sections(self, sections):
         section_set = set(sections)
         return [section for section in Section if section in section_set]
 
+    def expire_session(self, session):
+        released_counts = {}
+
+        seats_by_section = self._group_seats_by_section(session.seats)
+        ordered_sections = self._ordered_sections(seats_by_section.keys())
+
+        with self.server.mutex_manager.table_and_sections(ordered_sections):
+            # Double-check session still ACTIVE inside lock (racing with CONFIRM)
+            current = self.server.session_manager.get_by_session_id(session.session_id)
+            if current is None or current.state != ReservationStatus.ACTIVE:
+                return
+
+            for section in ordered_sections:
+                released_counts[section] = 0
+                for row, col in seats_by_section[section]:
+                    if self.server.seat_matrix.seats[section][row][col] == SeatState.RESERVED:
+                        self.server.seat_matrix.seats[section][row][col] = SeatState.AVAILABLE
+                        released_counts[section] += 1
+
+            self.server.session_manager.remove(session.user_id)
+
+        for section, count in released_counts.items():
+            if count > 0:
+                self.server.semaphore_mgr.release_multiple(section, count)
+
+        total = sum(released_counts.values())
+        self.server.global_log.append(
+            "EXPIRE",
+            f"Session:{session.session_id} User:{session.user_id} seats_released:{total}",
+        )
+
+    # DEPRECATED in Phase 1 — kept for Phase 2 analysis. No longer called from run().
     def expire_reservation(self, tx_id):
         released_counts = {}
 
