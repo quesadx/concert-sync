@@ -61,33 +61,17 @@ class MonitorThread(threading.Thread):
             f"Session:{session.session_id} User:{session.user_id} seats_released:{total}",
         )
 
-    # DEPRECATED in Phase 1 — kept for Phase 2 analysis. No longer called from run().
     def expire_reservation(self, tx_id):
-        released_counts = {}
+        """Legacy safety wrapper — no longer called from run().
 
-        with self.server.mutex_manager.table():
-            reservation = self.server.reservation_table.reservations.get(tx_id)
-            if not reservation or reservation.state != ReservationStatus.ACTIVE:
+        Attempts to find session by transaction_id and expire it.
+        If no matching session found, logs and returns.
+        """
+        for session in list(self.server.session_manager._sessions.values()):
+            if session.session_id == tx_id:
+                self.expire_session(session)
                 return
-
-                reservation.state = ReservationStatus.EXPIRED
-                for section in ordered_sections:
-                    for row, col in seats_by_section[section]:
-                        if self.server.seat_matrix.seats[section][row][col] == SeatState.RESERVED:
-                            self.server.seat_matrix.seats[section][row][col] = SeatState.AVAILABLE
-                            released_counts[section] += 1
-
-            cleared_reservation = self.server.reservation_table.delete_reservation(tx_id, locked=True)
-            if cleared_reservation is None:
-                return
-
-        for section, count in released_counts.items():
-            if count > 0:
-                self.server.semaphore_mgr.release_multiple(section, count)
-
-        released_total = sum(released_counts.values())
-
         self.server.global_log.append(
             "EXPIRE",
-            f"TX:{tx_id} expired seats_released:{released_total} sections_released:{len(released_counts)}",
+            f"TX:{tx_id} not found in active sessions (already expired/confirmed)",
         )
