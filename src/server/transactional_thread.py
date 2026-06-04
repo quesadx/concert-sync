@@ -497,8 +497,13 @@ class TransactionalThread(threading.Thread):
             with self.server.mutex_manager.table_and_sections(ordered_sections):
                 # Double-check session still ACTIVE inside lock
                 current_session = self.server.session_manager.get_by_session_id(session_id)
-                if current_session is None or current_session.state != ReservationStatus.ACTIVE:
-                    return failure_transaction_not_active(session_id, "not ACTIVE")
+                if current_session is None:
+                    return failure_transaction_not_found(session_id)
+                if current_session.state == ReservationStatus.CANCELLED:
+                    self.server.global_log.append("CANCEL", f"Session:{session_id} already cancelled (idempotent)")
+                    return build_success_response(transaction_id=session_id)
+                if current_session.state != ReservationStatus.ACTIVE:
+                    return failure_transaction_not_active(session_id, current_session.state.value)
 
                 for section in ordered_sections:
                     for row, col in seats_by_section[section]:
