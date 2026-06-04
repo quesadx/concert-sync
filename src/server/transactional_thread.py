@@ -408,9 +408,9 @@ class TransactionalThread(threading.Thread):
                 session.state = ReservationStatus.CANCELLED
                 self.server.session_manager.remove(session.user_id)
 
-            for section, count in released_counts.items():
-                if count > 0:
-                    self.server.semaphore_mgr.release_multiple(section, count)
+                for section, count in released_counts.items():
+                    if count > 0:
+                        self.server.semaphore_mgr.release_multiple(section, count)
 
             self.server.global_log.append(
                 "CANCEL",
@@ -447,13 +447,16 @@ class TransactionalThread(threading.Thread):
 
     def handle_query_seat_map(self, request):
         """
-        Query full seat-state matrix by section for visualization clients.
+        Enriched seat-map response with OWN_RESERVED tags for requesting user's seats.
+        Safe: OWN_RESERVED is view-only, never written to SeatMatrix.
+        session.seats read outside lock — stale reads just mean one refresh cycle
+        of amber instead of teal (harmless).
 
         Response shape:
         {
             "status": "SUCCESS",
             "seat_map": {
-                "VIP": [["AVAILABLE", ...], ...],
+                "VIP": [["AVAILABLE", "OWN_RESERVED", "RESERVED", ...], ...],
                 "PREFERENTIAL": [[...]],
                 "GENERAL": [[...]]
             }
@@ -461,13 +464,26 @@ class TransactionalThread(threading.Thread):
         """
         try:
             seat_map = {}
+            requesting_user_id = request.get("user_id", "")
+            session = None
+            if requesting_user_id:
+                session = self.server.session_manager.get_by_user_id(requesting_user_id)
 
             with self.server.mutex_manager.sections(list(Section)):
                 for section in Section:
                     rows = self.server.seat_matrix.seats[section]
                     serialized_rows = []
-                    for row in rows:
-                        serialized_rows.append([seat.value for seat in row])
+                    for row_idx, row in enumerate(rows):
+                        serialized_row = []
+                        for col_idx, seat in enumerate(row):
+                            if seat == SeatState.RESERVED and session is not None:
+                                if (section, row_idx, col_idx) in session.seats:
+                                    serialized_row.append("OWN_RESERVED")
+                                else:
+                                    serialized_row.append(seat.value)
+                            else:
+                                serialized_row.append(seat.value)
+                        serialized_rows.append(serialized_row)
                     seat_map[section.name] = serialized_rows
 
             return build_success_response(seat_map=seat_map)
