@@ -9,9 +9,9 @@ class LoginScreen(Screen):
         yield Header(show_clock=True)
         with Vertical(id="login-container"):
             yield Label("Welcome to ConcertSync", id="welcome-label")
-            yield Label("Enter your display name to join:")
+            yield Label("Enter your display name to join:", id="subtitle-label")
             yield Input(placeholder="e.g., Alice", id="name-input")
-            yield Button("Join", id="join-btn", variant="primary")
+            yield Button("Join", id="join-btn", variant="primary", tooltip="Join the concert reservation system")
         yield Footer()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:

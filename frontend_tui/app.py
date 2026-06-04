@@ -86,6 +86,13 @@ class ConcertTextualApp(App):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("f5", "manual_refresh", "Refresh"),
+        Binding("r", "reserve_single", "Reserve"),
+        Binding("b", "reserve_batch", "Batch"),
+        Binding("p", "reserve_pending", "Confirm"),
+        Binding("c", "confirm", "Confirm"),
+        Binding("x", "cancel", "Cancel"),
+        Binding("t", "use_last_tx", "Last TX"),
+        Binding("l", "use_last_active", "Active"),
     ]
 
     def __init__(self):
@@ -124,19 +131,19 @@ class ConcertTextualApp(App):
                 with Horizontal(id="connection-row"):
                     yield Input(value="localhost", placeholder="Host", id="host-input")
                     yield Input(value="9999", placeholder="Port", id="port-input")
-                yield Button("Connect", id="connect-btn", variant="primary")
+                yield Button("Connect", id="connect-btn", variant="primary", tooltip="Connect to the concert server")
 
                 yield Static("Server log path", classes="panel-title")
                 with Horizontal(id="log-row"):
                     yield Input(value="logs/system.log", placeholder="Path to system.log", id="log-path-input")
-                    yield Button("Apply", id="apply-log-btn")
+                    yield Button("Set Log Path", id="apply-log-btn", tooltip="Set the server log file path")
 
                 yield Static("Reserve single seat", classes="panel-title")
                 yield Select(SECTION_OPTIONS, value="VIP", id="section-select", allow_blank=False)
                 with Horizontal(id="seat-row"):
                     yield Input(placeholder="Row", id="row-input")
                     yield Input(placeholder="Column", id="col-input")
-                yield Button("Reserve Seat", id="reserve-btn", variant="success")
+                yield Button("Reserve Seat", id="reserve-btn", variant="success", tooltip="Reserve the specified single seat")
 
                 yield Static("Reserve batch seats", classes="panel-title")
                 yield Input(
@@ -148,20 +155,20 @@ class ConcertTextualApp(App):
                     "Example: VIP:0:0,VIP:0:1,GENERAL:2:3",
                     id="batch-help",
                 )
-                yield Button("Reserve Batch", id="reserve-batch-btn", variant="success")
-                yield Button("Reserve Pending", id="reserve-pending-btn", variant="warning")
+                yield Button("Reserve Batch", id="reserve-batch-btn", variant="success", tooltip="Reserve seats from batch input")
+                yield Button("Confirm Selected Seats", id="reserve-pending-btn", variant="warning", tooltip="Reserve all selected pending seats")
 
                 yield Static("Transaction actions", classes="panel-title")
                 yield Input(placeholder="Transaction ID", id="tx-input")
                 with Horizontal(id="tx-helpers-row"):
-                    yield Button("Use Last TX", id="use-last-tx-btn")
-                    yield Button("Use Last ACTIVE", id="use-last-active-tx-btn")
+                    yield Button("Use Last TX", id="use-last-tx-btn", tooltip="Fill transaction ID with the latest")
+                    yield Button("Use Last ACTIVE", id="use-last-active-tx-btn", tooltip="Fill transaction ID with the latest active")
                 with Horizontal(id="tx-row"):
-                    yield Button("Confirm", id="confirm-btn", variant="primary")
-                    yield Button("Cancel", id="cancel-btn", variant="warning")
+                    yield Button("Confirm", id="confirm-btn", variant="primary", tooltip="Confirm the transaction")
+                    yield Button("Cancel", id="cancel-btn", variant="warning", tooltip="Cancel the transaction")
 
                 with Horizontal(id="quick-row"):
-                    yield Button("Refresh Now", id="query-btn")
+                    yield Button("Refresh Now", id="query-btn", tooltip="Force refresh all data from server")
 
                 yield Static("Ready", id="status-line")
 
@@ -192,7 +199,7 @@ class ConcertTextualApp(App):
                 yield Static("", id="thread-chart")
 
                 yield Static("Live event stream", classes="panel-title")
-                yield RichLog(id="event-log", wrap=False, markup=False, highlight=True)
+                yield RichLog(id="event-log", wrap=False, markup=True, highlight=True)
 
         yield Footer()
 
@@ -227,6 +234,27 @@ class ConcertTextualApp(App):
 
     def action_manual_refresh(self) -> None:
         self._refresh_query(silent=False)
+
+    def action_reserve_single(self) -> None:
+        self._reserve_single_seat()
+
+    def action_reserve_batch(self) -> None:
+        self._reserve_batch_seats()
+
+    def action_reserve_pending(self) -> None:
+        self._reserve_pending_selections()
+
+    def action_confirm(self) -> None:
+        self._confirm_transaction()
+
+    def action_cancel(self) -> None:
+        self._cancel_transaction()
+
+    def action_use_last_tx(self) -> None:
+        self._fill_transaction_input_with_latest(active_only=False)
+
+    def action_use_last_active(self) -> None:
+        self._fill_transaction_input_with_latest(active_only=True)
 
     def on_data_table_cell_selected(self, event: DataTable.CellSelected) -> None:
         """Handle seat selection from the visual seat table."""
@@ -263,7 +291,7 @@ class ConcertTextualApp(App):
                     self._set_status(f"Deselected {section}({row_idx},{col_idx})")
                 else:
                     self.pending_selections.append(seat_entry)
-                    self._set_status(f"Seat selected, click Reserve Pending to confirm")
+                    self._set_status(f"Seat selected, click Confirm Selected Seats")
                 self._queue_seat_map_render()
             else:
                 self._set_status(
@@ -1027,7 +1055,7 @@ class ConcertTextualApp(App):
 
         self.query_one(
             "#seat-map-legend", Static
-        ).update("A=AVAILABLE  P=PENDING  R=RESERVED  Y=YOURS  S=SOLD  (click available seats, then Reserve Pending)")
+        ).update("A=AVAILABLE  P=PENDING  R=RESERVED  Y=YOURS  S=SOLD  (click available seats, then Confirm Selected Seats)")
 
     def _latest_session(self, active_only: bool) -> Optional[TrackedSession]:
         filtered = [
