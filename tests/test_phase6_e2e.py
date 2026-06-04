@@ -5,6 +5,8 @@ import re
 import socket
 import time
 
+import pytest
+
 from src.client.concert_client import ConcertClient, ConcertClientError
 from src.server.concert_server import ConcertServer
 from src.utils.enums import Section, SeatState
@@ -139,3 +141,102 @@ class TestLogFormat:
         pattern = re.compile(r"\[\d{4}-\d{2}-\d{2}T.*\] \[.*\] \[TID:\d+\] .*")
         matching = [l for l in lines if pattern.match(l)]
         assert len(matching) > 0, f"No log lines match the expected format with TID"
+
+
+class TestDisconnectDetection:
+    """Tests for TUI server disconnection detection."""
+
+    def test_client_raises_on_stopped_server(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("localhost", 0))
+            port = s.getsockname()[1]
+
+        server = ConcertServer(port=port)
+        server.start()
+        try:
+            _wait_for_server("localhost", port)
+            client = ConcertClient(user_id="DiscoA", port=port)
+            response = client.reserve_seat("VIP", 0, 6)
+            assert response.get("status") == "SUCCESS"
+        finally:
+            server.stop()
+
+        with pytest.raises(ConcertClientError):
+            client.query()
+
+    def test_client_recovers_after_restart(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("localhost", 0))
+            port1 = s.getsockname()[1]
+
+        server1 = ConcertServer(port=port1)
+        server1.start()
+        try:
+            _wait_for_server("localhost", port1)
+            client = ConcertClient(user_id="DiscoB", port=port1)
+            response = client.reserve_seat("VIP", 0, 7)
+            assert response.get("status") == "SUCCESS"
+        finally:
+            server1.stop()
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("localhost", 0))
+            port2 = s.getsockname()[1]
+
+        server2 = ConcertServer(port=port2)
+        server2.start()
+        try:
+            _wait_for_server("localhost", port2)
+            client2 = ConcertClient(user_id="DiscoB", port=port2)
+            response = client2.query()
+            assert response.get("status") == "SUCCESS"
+        finally:
+            server2.stop()
+
+
+class TestSaturatedZone:
+    """Tests for saturated zone pre-flight seat availability check."""
+
+    def test_preflight_detects_unavailable_seat(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("localhost", 0))
+            port = s.getsockname()[1]
+
+        server = ConcertServer(port=port)
+        server.start()
+        try:
+            _wait_for_server("localhost", port)
+            client_a = ConcertClient(user_id="UserA", port=port)
+            response = client_a.reserve_seat("VIP", 0, 8)
+            assert response.get("status") == "SUCCESS"
+
+            client_b = ConcertClient(user_id="UserB", port=port)
+            seat_map_resp = client_b.query_seat_map()
+            seat_map = seat_map_resp.get("seat_map", {})
+            vip_grid = seat_map.get("VIP", [])
+            assert vip_grid[0][8] != "AVAILABLE"
+        finally:
+            server.stop()
+
+    def test_preflight_passes_for_available_seats(self):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("localhost", 0))
+            port = s.getsockname()[1]
+
+        server = ConcertServer(port=port)
+        server.start()
+        try:
+            _wait_for_server("localhost", port)
+            client_c = ConcertClient(user_id="UserC", port=port)
+            response = client_c.reserve_seat("VIP", 0, 9)
+            assert response.get("status") == "SUCCESS"
+
+            client_d = ConcertClient(user_id="UserD", port=port)
+            seat_map_resp = client_d.query_seat_map()
+            seat_map = seat_map_resp.get("seat_map", {})
+            vip_grid = seat_map.get("VIP", [])
+
+            assert vip_grid[0][9] == "RESERVED"
+            assert vip_grid[1][0] == "AVAILABLE"
+        finally:
+            server.stop()
