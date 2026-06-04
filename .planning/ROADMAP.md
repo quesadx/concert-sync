@@ -177,10 +177,12 @@
 
 ---
 
-### Phase 6: Instance Closure + Saturated Zone + Audit Log
+### Phase 6: Instance Closure + Saturated Zone + Audit Log ✓
 **Goal:** Handle application closure, early conflict detection, improved logging
 
-**Requirements:** CLS-01, SAT-01, SAT-02, LOG-01, LOG-02, LOG-03
+**Status:** Executed ✓
+
+**Requirements:** CLS-01 ✓, SAT-01 ✓, SAT-02 ✓, LOG-01 ✓, LOG-02 ✓, LOG-03 ✓
 
 **Success Criteria:**
 1. Closing application properly cleans up or recovers selected seats
@@ -188,15 +190,29 @@
 3. Log entries clear, human-readable, with concurrency traceability
 4. Existing logging infrastructure preserved
 
+**Plans:** 2 plans in 2 waves
+
+**Wave 1** *(foundation — no dependencies)*
+- [x] `06-01-PLAN.md` — Server-side shutdown cleanup + GlobalLog thread ID + E2E tests
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [x] `06-02-PLAN.md` — Client disconnect detection + saturated zone pre-flight check + E2E tests
+
+**Cross-cutting constraints:**
+- All plans: Shutdown cleanup must not block (per-session locks, 2s thread join timeout)
+- All plans: Saturated zone check is client-side only — no server protocol changes (SAT-02)
+- All plans: Logging format modified only by adding [TID:{tid}] — infrastructure preserved (LOG-03)
+
 **Files likely modified:**
-- `src/server/concert_server.py` — Shutdown cleanup
-- `src/client/concert_client.py` — Client disconnect handling
-- `frontend_tui/app.py` — Saturated zone feedback
-- `src/shared_resources/` — Logging utilities
+- `src/server/concert_server.py` — Shutdown cleanup (_release_all_sessions)
+- `src/server/session_manager.py` — get_all_active() helper
+- `src/shared_resources/global_log.py` — Thread ID in log entries
+- `frontend_tui/app.py` — Disconnect detection + saturated zone feedback
+- `tests/test_phase6_e2e.py` — E2E tests
 
 **Risks:**
-- Shutdown cleanup must not block or hang
-- Saturated zone changes must not redesign the flow
+- Shutdown cleanup must not block or hang — mitigated: per-session locks, 0.5s drain wait, 2s join timeout
+- Saturated zone changes must not redesign the flow — mitigated: client-side only, no server changes
 
 ---
 
@@ -244,7 +260,7 @@ Phase 1 (User ID + Session TTL)
 | 3 | Buy Near Expiry + Cancellation | 4 | 5 |
 | 4 | Visual Differentiation | 3 | 3 |
 | 5 | Reservation Consistency | 3 | 4 |
-| 6 | Closure + Saturated + Log | 5 | 4 |
+| 6 | Closure + Saturated + Log | 6 | 4 |
 | 7 | Concurrency Review | 5 | 5 |
 |   | **Total** | **32** | **32** |
 

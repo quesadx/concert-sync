@@ -1,9 +1,9 @@
 # ConcertSync — Project State
 
 **Current Phase:** Phase 6 — Instance Closure + Saturated Zone + Audit Log
-**Last Command:** `/gsd-execute-phase 5`
+**Last Command:** `/gsd-execute 6`
 **Last Updated:** 2026-06-04
-**Status:** Phase 5 Executed ✓
+**Status:** Phase 6 Executed ✓
 
 ## Points of Progress
 
@@ -20,7 +20,9 @@
 - [x] Phase 5: Reservation Consistency — Executed ✓ (2 plans, 2 waves)
    - [x] 05-01: RESERVE_SELECTED handler + ConcertClient.reserve_selected()
    - [x] 05-02: TUI pending seat selection + Reserve Pending button
-- [ ] Phase 6: Closure + Saturated Zone + Audit Log — Pending
+- [x] Phase 6: Closure + Saturated Zone + Audit Log — Planned ✓ (2 plans, 2 waves)
+   - [x] 06-01: Server-side shutdown cleanup + GlobalLog TID + E2E tests
+   - [x] 06-02: TUI disconnect detection + saturated zone pre-flight + E2E tests
 - [ ] Phase 7: Concurrency Robustness Review — Pending
 
 ## Project Reference
@@ -29,7 +31,7 @@ See: `.planning/PROJECT.md` (updated 2026-06-01)
 
 **Core value:** Multiple users can concurrently browse, select, and purchase concert seats without double-booking or losing reservations.
 
-**Current focus:** Phase 6 — Instance Closure + Saturated Zone + Audit Log
+**Current focus:** Phase 6 — Instance Closure + Saturated Zone + Audit Log (Executed ✓)
 
 ## Completed Phase
 
@@ -68,8 +70,25 @@ Plans: 2 (05-01 ✓, 05-02 ✓)
 - "Reserve Pending" button sends one `RESERVE_SELECTED` for all pending seats
 - Existing single-seat `RESERVE`, `RESERVE_BATCH`, and block mode completely unchanged
 
+## Completed Phase
+
+**Phase 6: Instance Closure + Saturated Zone + Audit Log** ✓
+
+Goal: Server releases seats on shutdown; TUI detects disconnection; client-side saturated zone pre-flight
+
+Requirements: CLS-01 ✓, SAT-01 ✓, SAT-02 ✓, LOG-01 ✓, LOG-02 ✓, LOG-03 ✓
+
+Plans: 2 (06-01 ✓, 06-02 ✓)
+
+### What was built
+- GlobalLog TID: Every `append()` auto-includes `[TID:{thread_id}]` — zero caller changes
+- SessionManager.get_all_active(): Safe iteration of ACTIVE sessions under lock
+- ConcertServer._release_all_sessions(): Releases ACTIVE seat states and restores semaphores in `stop()` with 0.5s drain delay
+- TUI disconnect detection: 3 consecutive query failures → "DISCONNECTED — server unreachable"; resets on reconnection
+- Saturated zone pre-flight: Reserve Pending checks seat_map_snapshot before sending; removes non-AVAILABLE seats with `[SATURATED]` warning
+- No server-side changes for saturated zone detection (SAT-02 preserved)
+- 9 E2E tests: 3 shutdown cleanup, 2 log format, 2 disconnect detection, 2 saturated zone
+
 ## Next Action
 
-Phase 6 — Instance Closure + Saturated Zone + Audit Log: Ready to plan.
-
-Requirements: CLS-01, SAT-01, SAT-02, LOG-01, LOG-02, LOG-03
+Phase 7 — Concurrency Robustness Review: Ready to plan.
