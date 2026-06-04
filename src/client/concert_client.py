@@ -179,6 +179,27 @@ class ConcertClient:
         response = self.send_request(request)
         return response
 
+    def reserve_selected(self, seats):
+        """
+        Reserve multiple seats atomically (used by TUI pending selection).
+
+        Args:
+            seats: List of dicts with keys "section", "row", "col"
+
+        Returns:
+            Response dict with transaction_id, ttl, and reserved_seats
+
+        Raises:
+            ServerError: If server error occurs
+        """
+        request = {
+            "action": "RESERVE_SELECTED",
+            "seats": seats,
+        }
+
+        response = self.send_request(request)
+        return response
+
     def confirm(self, transaction_id):
         """
         Confirm a reservation (convert to SOLD state).

@@ -51,6 +51,8 @@ class TransactionalThread(threading.Thread):
                 response = self.handle_reserve(request)
             elif action == "RESERVE_BATCH":
                 response = self.handle_reserve_batch(request)
+            elif action == "RESERVE_SELECTED":
+                response = self.handle_reserve_selected(request)
             elif action == "CONFIRM":
                 response = self.handle_confirm(request)
             elif action == "CANCEL":
@@ -296,6 +298,110 @@ class TransactionalThread(threading.Thread):
 
         except Exception as e:
             self.server.global_log.append("ERROR", f"RESERVE_BATCH TX failed: {str(e)}")
+            return error_internal(str(e))
+
+
+    def handle_reserve_selected(self, request):
+        """
+        Reserve a list of seats atomically (used by TUI pending selection).
+
+        Identical in lock/semaphore pattern to handle_reserve_batch but returns
+        session.session_id as transaction_id. Validates all seats, marks RESERVED,
+        acquires semaphore slots, appends to session, all inside table_and_sections.
+        Full rollback on any failure.
+        """
+        is_valid, error_msg = validate_reserve_batch_payload(request)
+        if not is_valid:
+            return build_error_response(ErrorCode.INVALID_PAYLOAD, error_msg)
+
+        try:
+            user_id = request["user_id"]
+            seats_to_reserve = request.get("seats", [])
+
+            sections_and_seats = {}
+            seat_objects = []
+
+            for seat_obj in seats_to_reserve:
+                section_str = seat_obj["section"]
+                row = int(seat_obj["row"])
+                col = int(seat_obj["col"])
+
+                try:
+                    section = Section[section_str]
+                except KeyError:
+                    return error_invalid_section(section_str)
+
+                config = SECTION_CONFIG.get(section, {})
+                max_rows = config.get("rows", 0)
+                max_cols = config.get("cols", 0)
+
+                if row >= max_rows or col >= max_cols:
+                    return error_seat_out_of_bounds(section_str, row, col, max_rows, max_cols)
+
+                if section not in sections_and_seats:
+                    sections_and_seats[section] = []
+
+                sections_and_seats[section].append((row, col))
+                seat_objects.append({"section": section_str, "row": row, "col": col})
+
+            session = self.server.session_manager.get_or_create(user_id)
+            ordered_sections = self._ordered_sections(sections_and_seats.keys())
+            reserved_seats = []
+            acquired_semaphores = defaultdict(int)
+
+            with self.server.mutex_manager.table_and_sections(ordered_sections):
+                for section in ordered_sections:
+                    for row, col in sections_and_seats[section]:
+                        current_state = self.server.seat_matrix.seats[section][row][col]
+                        if current_state != SeatState.AVAILABLE:
+                            return failure_seat_not_available(
+                                section.name,
+                                row,
+                                col,
+                                current_state.value,
+                            )
+
+                for section in ordered_sections:
+                    for row, col in sections_and_seats[section]:
+                        self.server.seat_matrix.seats[section][row][col] = SeatState.RESERVED
+                        reserved_seats.append((section, row, col))
+
+                for section in ordered_sections:
+                    requested_count = len(sections_and_seats[section])
+
+                    for _ in range(requested_count):
+                        acquired = self.server.semaphore_mgr.acquire(section, blocking=False)
+                        if not acquired:
+                            for r_section, r_row, r_col in reserved_seats:
+                                self.server.seat_matrix.seats[r_section][r_row][r_col] = SeatState.AVAILABLE
+
+                            for rollback_section, rollback_count in acquired_semaphores.items():
+                                if rollback_count > 0:
+                                    self.server.semaphore_mgr.release_multiple(rollback_section, rollback_count)
+
+                            return failure_no_capacity(section.name)
+
+                        acquired_semaphores[section] += 1
+
+                for section in ordered_sections:
+                    for row, col in sections_and_seats[section]:
+                        session.seats.append((section, row, col))
+                session.reset_ttl()
+
+            session_id = session.session_id
+            self.server.global_log.append(
+                "RESERVE_SELECTED",
+                f"Session:{session_id} Seats:{seat_objects}",
+            )
+
+            return build_success_response(
+                transaction_id=session_id,
+                ttl=RESERVATION_TTL,
+                reserved_seats=seat_objects
+            )
+
+        except Exception as e:
+            self.server.global_log.append("ERROR", f"RESERVE_SELECTED TX failed: {str(e)}")
             return error_internal(str(e))
 
 
