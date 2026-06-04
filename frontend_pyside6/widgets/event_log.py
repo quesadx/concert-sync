@@ -47,6 +47,10 @@ class EventLogWidget(QTextEdit):
         )
         self.ensureCursorVisible()
 
+    def clear_log(self) -> None:
+        """Clear all event log content."""
+        self.clear()
+
     def append_line(self, line: str) -> None:
         """Append a raw server log line (called during log tailing).
 

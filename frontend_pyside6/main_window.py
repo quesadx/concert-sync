@@ -19,7 +19,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set
 from uuid import uuid4
 
-from PySide6.QtCore import QSettings, QTimer, Signal, Slot
+from PySide6.QtCore import QSettings, Qt, QTimer, Signal, Slot
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QStatusBar,
     QVBoxLayout,
@@ -213,6 +215,10 @@ class ConcertMainWindow(QMainWindow):
 
         self.event_log = EventLogWidget()
         right_panel.addWidget(self.event_log, stretch=1)
+
+        clear_log_btn = QPushButton("Clear Log")
+        clear_log_btn.clicked.connect(self.event_log.clear)
+        right_panel.addWidget(clear_log_btn)
 
         main_layout.addLayout(right_panel, stretch=60)
 
@@ -723,3 +729,65 @@ class ConcertMainWindow(QMainWindow):
             message: The event description text.
         """
         self.event_log.append_event(category, message)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # Window Events (close guard, keyboard shortcuts)
+    # ════════════════════════════════════════════════════════════════════════
+
+    def closeEvent(self, event) -> None:
+        """Warn the user before closing if there are active reservations.
+
+        Checks all tracked sessions for ACTIVE state. If any exist, shows a
+        QMessageBox with Discard/Cancel options. Discard accepts the close;
+        Cancel ignores it.
+
+        Args:
+            event: The QCloseEvent from Qt.
+        """
+        active_sessions = [
+            tx_id
+            for tx_id, s in self.sessions.items()
+            if s.state == "ACTIVE"
+        ]
+        if active_sessions:
+            count = len(active_sessions)
+            tx_list = "\n".join(active_sessions[:5])
+            if count > 5:
+                tx_list += f"\n... and {count - 5} more"
+            msg = f"You have {count} active reservation(s):\n{tx_list}"
+            reply = QMessageBox.warning(
+                self,
+                "Active Reservations",
+                msg,
+                QMessageBox.Discard | QMessageBox.Cancel,
+                QMessageBox.Cancel,
+            )
+            if reply == QMessageBox.Discard:
+                event.accept()
+            else:
+                event.ignore()
+        else:
+            event.accept()
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        """Handle keyboard shortcuts.
+
+        Ctrl+R: Trigger Reserve Selected action.
+        Ctrl+Q: Close the window.
+        Tab: Cycle through section combo (VIP → PREFERENTIAL → GENERAL → VIP).
+        All other keys: delegate to default handler.
+
+        Args:
+            event: The QKeyEvent from Qt.
+        """
+        if event.key() == Qt.Key_R and event.modifiers() & Qt.ControlModifier:
+            self._on_reserve_selected()
+        elif event.key() == Qt.Key_Q and event.modifiers() & Qt.ControlModifier:
+            self.close()
+        elif event.key() == Qt.Key_Tab:
+            current_idx = self.section_combo.currentIndex()
+            count = self.section_combo.count()
+            next_idx = (current_idx + 1) % count
+            self.section_combo.setCurrentIndex(next_idx)
+        else:
+            super().keyPressEvent(event)

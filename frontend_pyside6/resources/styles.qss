@@ -87,6 +87,18 @@ QTableWidget::item {
     font-size: 11px;
 }
 
+/* ── Message Box (Close Guard Dialog) ─────────────────────────────────────── */
+QMessageBox {
+    background-color: #0f1722;
+    color: #e0f0ff;
+}
+QMessageBox QLabel {
+    color: #e0f0ff;
+}
+QMessageBox QPushButton {
+    min-width: 80px;
+}
+
 /* ── Status Bar ──────────────────────────────────────────────────────────── */
 QStatusBar {
     background-color: #0f1722;
