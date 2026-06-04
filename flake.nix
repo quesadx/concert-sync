@@ -38,14 +38,19 @@
           ];
 
           shellHook = ''
-            export LD_LIBRARY_PATH="${libPath}:$LD_LIBRARY_PATH"
-
             export NPM_CONFIG_PREFIX="$PWD/.npm-global"
             export PATH="$PWD/.npm-global/bin:$PATH"
 
-            if [ ! -d "$PWD/.npm-global/lib/node_modules/get-shit-done-cc" ]; then
-              echo "Installing GSD SDK for OpenCode subagents..."
-              npm install -g get-shit-done-cc
+            GSD_MARKER="$PWD/.gsd-installed"
+
+            if [ ! -f "$GSD_MARKER" ]; then
+              echo "Installing GSD for OpenCode..."
+
+              npx -y @opengsd/gsd-core@latest install \
+                --ide opencode \
+                --project .
+
+              touch "$GSD_MARKER"
             fi
           '';
         };

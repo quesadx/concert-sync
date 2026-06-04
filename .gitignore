@@ -220,3 +220,5 @@ artifacts/
 
 # npm global cache
 .npm-global
+.opencode
+.gsd-installed
