@@ -9,6 +9,8 @@ from typing import Dict, List, Optional, Set
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from rich.style import Style
+from textual.coordinate import Coordinate
 from textual.widgets import Button, DataTable, Footer, Header, Input, RichLog, Select, Static
 
 from frontend_tui.login_screen import LoginScreen
@@ -854,17 +856,19 @@ class ConcertTextualApp(App):
             )
 
     @staticmethod
-    def _seat_token(state: str) -> str:
+    def _seat_cell(state: str) -> tuple[str, Optional[Style]]:
         if state == "AVAILABLE":
-            return "A"
+            return ("A", None)
         if state == "RESERVED":
-            return "R"
+            return ("R", Style(color="#d4a84b", bold=True))
+        if state == "OWN_RESERVED":
+            return ("Y", Style(color="#9ad4d6", bold=True))
         if state == "SOLD":
-            return "S"
-        return "?"
+            return ("S", Style(dim=True))
+        return ("?", Style(color="#ff4444"))
 
     def _render_seat_map(self) -> None:
-        """Render seat map as a simple clickable table."""
+        """Render seat map with per-state colors and styles."""
         table = self.query_one("#seat-map-table", DataTable)
         table.clear(columns=True)
 
@@ -877,14 +881,15 @@ class ConcertTextualApp(App):
         table.add_columns(*[str(col_idx) for col_idx in range(num_cols)])
 
         for row_idx, row in enumerate(selected_grid):
-            table.add_row(
-                *[self._seat_token(state) for state in row],
-                label=f"{row_idx:02d}",
-            )
+            cells = [self._seat_cell(state) for state in row]
+            table.add_row(*[token for token, _ in cells], label=f"{row_idx:02d}")
+            for col_idx, (token, style) in enumerate(cells):
+                if style is not None:
+                    table.update_cell_at(Coordinate(row_idx, col_idx), token, style=style)
 
         self.query_one(
             "#seat-map-legend", Static
-        ).update("A=AVAILABLE  R=RESERVED  S=SOLD  (click an available seat to reserve)")
+        ).update("A=AVAILABLE  R=RESERVED  Y=YOURS  S=SOLD  (click an available seat to reserve)")
 
     def _latest_session(self, active_only: bool) -> Optional[TrackedSession]:
         filtered = [
