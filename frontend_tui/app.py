@@ -9,8 +9,11 @@ from typing import Dict, List, Optional, Set
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from rich.style import Style
+from rich.text import Text
 from textual.widgets import Button, DataTable, Footer, Header, Input, RichLog, Select, Static
 
+from frontend_tui.login_screen import LoginScreen
 from src.client.concert_client import ConcertClient, ConcertClientError
 from src.utils.config import SECTION_CONFIG
 from src.utils.enums import Section
@@ -83,14 +86,23 @@ class ConcertTextualApp(App):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("f5", "manual_refresh", "Refresh"),
+        Binding("r", "reserve_single", "Reserve"),
+        Binding("b", "reserve_batch", "Batch"),
+        Binding("p", "reserve_pending", "Confirm"),
+        Binding("c", "confirm", "Confirm"),
+        Binding("x", "cancel", "Cancel"),
+        Binding("t", "use_last_tx", "Last TX"),
+        Binding("l", "use_last_active", "Active"),
     ]
 
     def __init__(self):
         super().__init__()
         self.client: Optional[ConcertClient] = None
+        self.user_id: Optional[str] = None
         self.connected_host: str = "localhost"
         self.connected_port: int = 9999
         self.sessions: Dict[str, TrackedSession] = {}
+        self.pending_selections: List[dict] = []
         self.section_snapshot = {
             "VIP": {"available": 0, "reserved": 0, "sold": 0},
             "PREFERENTIAL": {"available": 0, "reserved": 0, "sold": 0},
@@ -103,9 +115,12 @@ class ConcertTextualApp(App):
         self.thread_history: List[int] = []
         self.error_history: List[int] = []
         self.pending_clicks: Set[tuple[str, int, int]] = set()
+        self._seat_map_render_timer = None
         self.refresh_pending = False
         self.refresh_query_queued = False
         self.batch_pending = False
+        self.consecutive_failures: int = 0
+        self.server_disconnected: bool = False
         self.log_tailer = LogTailer(Path("logs/system.log"))
 
     def compose(self) -> ComposeResult:
@@ -116,19 +131,19 @@ class ConcertTextualApp(App):
                 with Horizontal(id="connection-row"):
                     yield Input(value="localhost", placeholder="Host", id="host-input")
                     yield Input(value="9999", placeholder="Port", id="port-input")
-                yield Button("Connect", id="connect-btn", variant="primary")
+                yield Button("Connect", id="connect-btn", variant="primary", tooltip="Connect to the concert server")
 
                 yield Static("Server log path", classes="panel-title")
                 with Horizontal(id="log-row"):
                     yield Input(value="logs/system.log", placeholder="Path to system.log", id="log-path-input")
-                    yield Button("Apply", id="apply-log-btn")
+                    yield Button("Set Log Path", id="apply-log-btn", tooltip="Set the server log file path")
 
                 yield Static("Reserve single seat", classes="panel-title")
                 yield Select(SECTION_OPTIONS, value="VIP", id="section-select", allow_blank=False)
                 with Horizontal(id="seat-row"):
                     yield Input(placeholder="Row", id="row-input")
                     yield Input(placeholder="Column", id="col-input")
-                yield Button("Reserve Seat", id="reserve-btn", variant="success")
+                yield Button("Reserve Seat", id="reserve-btn", variant="success", tooltip="Reserve the specified single seat")
 
                 yield Static("Reserve batch seats", classes="panel-title")
                 yield Input(
@@ -140,19 +155,20 @@ class ConcertTextualApp(App):
                     "Example: VIP:0:0,VIP:0:1,GENERAL:2:3",
                     id="batch-help",
                 )
-                yield Button("Reserve Batch", id="reserve-batch-btn", variant="success")
+                yield Button("Reserve Batch", id="reserve-batch-btn", variant="success", tooltip="Reserve seats from batch input")
+                yield Button("Confirm Selected Seats", id="reserve-pending-btn", variant="warning", tooltip="Reserve all selected pending seats")
 
                 yield Static("Transaction actions", classes="panel-title")
                 yield Input(placeholder="Transaction ID", id="tx-input")
                 with Horizontal(id="tx-helpers-row"):
-                    yield Button("Use Last TX", id="use-last-tx-btn")
-                    yield Button("Use Last ACTIVE", id="use-last-active-tx-btn")
+                    yield Button("Use Last TX", id="use-last-tx-btn", tooltip="Fill transaction ID with the latest")
+                    yield Button("Use Last ACTIVE", id="use-last-active-tx-btn", tooltip="Fill transaction ID with the latest active")
                 with Horizontal(id="tx-row"):
-                    yield Button("Confirm", id="confirm-btn", variant="primary")
-                    yield Button("Cancel", id="cancel-btn", variant="warning")
+                    yield Button("Confirm", id="confirm-btn", variant="primary", tooltip="Confirm the transaction")
+                    yield Button("Cancel", id="cancel-btn", variant="warning", tooltip="Cancel the transaction")
 
                 with Horizontal(id="quick-row"):
-                    yield Button("Refresh Now", id="query-btn")
+                    yield Button("Refresh Now", id="query-btn", tooltip="Force refresh all data from server")
 
                 yield Static("Ready", id="status-line")
 
@@ -183,11 +199,24 @@ class ConcertTextualApp(App):
                 yield Static("", id="thread-chart")
 
                 yield Static("Live event stream", classes="panel-title")
-                yield RichLog(id="event-log", wrap=False, markup=False, highlight=True)
+                yield RichLog(id="event-log", wrap=False, markup=True, highlight=True)
 
         yield Footer()
 
     def on_mount(self) -> None:
+        self.push_screen(LoginScreen(), self._on_login)
+
+    def _on_login(self, user_id: str) -> None:
+        self.user_id = user_id
+        self.title = f"ConcertSync — {user_id}"
+        self.client = ConcertClient(
+            user_id=user_id,
+            host=self.connected_host,
+            port=self.connected_port,
+        )
+        self._setup_main_ui()
+
+    def _setup_main_ui(self) -> None:
         section_table = self.query_one("#section-table", DataTable)
         section_table.add_columns("Section", "Available", "Reserved", "Sold")
 
@@ -205,6 +234,27 @@ class ConcertTextualApp(App):
 
     def action_manual_refresh(self) -> None:
         self._refresh_query(silent=False)
+
+    def action_reserve_single(self) -> None:
+        self._reserve_single_seat()
+
+    def action_reserve_batch(self) -> None:
+        self._reserve_batch_seats()
+
+    def action_reserve_pending(self) -> None:
+        self._reserve_pending_selections()
+
+    def action_confirm(self) -> None:
+        self._confirm_transaction()
+
+    def action_cancel(self) -> None:
+        self._cancel_transaction()
+
+    def action_use_last_tx(self) -> None:
+        self._fill_transaction_input_with_latest(active_only=False)
+
+    def action_use_last_active(self) -> None:
+        self._fill_transaction_input_with_latest(active_only=True)
 
     def on_data_table_cell_selected(self, event: DataTable.CellSelected) -> None:
         """Handle seat selection from the visual seat table."""
@@ -233,19 +283,16 @@ class ConcertTextualApp(App):
             )
 
             if state == "AVAILABLE":
-                seat_key = (section, row_idx, col_idx)
-                if seat_key not in self.pending_clicks:
-                    self.pending_clicks.add(seat_key)
-                    self._set_status(f"Reserving {section}({row_idx},{col_idx})...")
-                    threading.Thread(
-                        target=self._reserve_click_worker,
-                        args=(section, row_idx, col_idx, seat_key),
-                        daemon=True,
-                    ).start()
+                seat_entry = {"section": section, "row": row_idx, "col": col_idx}
+                existing = [i for i, s in enumerate(self.pending_selections)
+                           if s["section"] == section and s["row"] == row_idx and s["col"] == col_idx]
+                if existing:
+                    self.pending_selections.pop(existing[0])
+                    self._set_status(f"Deselected {section}({row_idx},{col_idx})")
                 else:
-                    self._set_status(
-                        f"Already reserving {section}({row_idx},{col_idx})..."
-                    )
+                    self.pending_selections.append(seat_entry)
+                    self._set_status(f"Seat selected, click Confirm Selected Seats")
+                self._queue_seat_map_render()
             else:
                 self._set_status(
                     f"Selected {section}({row_idx},{col_idx}) - State: {state}"
@@ -264,6 +311,8 @@ class ConcertTextualApp(App):
             self._reserve_single_seat()
         elif button_id == "reserve-batch-btn":
             self._reserve_batch_seats()
+        elif button_id == "reserve-pending-btn":
+            self._reserve_pending_selections()
         elif button_id == "confirm-btn":
             self._confirm_transaction()
         elif button_id == "cancel-btn":
@@ -404,6 +453,13 @@ class ConcertTextualApp(App):
         seat_map_payload: Dict[str, List[List[str]]],
         silent: bool,
     ) -> None:
+        if self.server_disconnected:
+            self.server_disconnected = False
+            self.query_one("#connection-status", Static).update(
+                f"Connected to {self.connected_host}:{self.connected_port} — live polling every second"
+            )
+            self._append_event("[CLIENT] Reconnected to server")
+        self.consecutive_failures = 0
         for section_name in self.section_snapshot:
             if section_name in sections:
                 self.section_snapshot[section_name] = sections[section_name]
@@ -419,7 +475,15 @@ class ConcertTextualApp(App):
             self._set_status("Section data refreshed.")
 
     def _refresh_query_failed(self, silent: bool, error_message: str) -> None:
-        if not silent:
+        self.consecutive_failures += 1
+        if self.consecutive_failures >= 3 and not self.server_disconnected:
+            self.server_disconnected = True
+            self._set_status("Server disconnected — some seats may have been released. Reconnect to continue.")
+            self._append_event("[CLIENT] Server disconnected (3 consecutive failures)")
+            self.query_one("#connection-status", Static).update(
+                "DISCONNECTED — server unreachable"
+            )
+        elif not silent:
             self._set_status(f"Refresh error: {error_message}")
             self._append_event(f"[CLIENT] Query failed: {error_message}")
 
@@ -482,17 +546,29 @@ class ConcertTextualApp(App):
             except Exception:
                 self._reserve_single_seat_failed(section, row, col, str(exc))
 
+    def _track_session(self, transaction_id: str, operation_type: str, seat_summary: str, ttl: int) -> TrackedSession:
+        if transaction_id in self.sessions:
+            existing = self.sessions[transaction_id]
+            existing.seat_summary = existing.seat_summary + ", " + seat_summary if existing.seat_summary else seat_summary
+            existing.created_at = time.time()
+            existing.state = "ACTIVE"
+            existing.ttl_seconds = ttl
+            return existing
+        session = TrackedSession(
+            transaction_id=transaction_id,
+            operation_type=operation_type,
+            seat_summary=seat_summary,
+            ttl_seconds=ttl,
+            created_at=time.time(),
+        )
+        self.sessions[transaction_id] = session
+        return session
+
     def _reserve_single_seat_succeeded(self, section: str, row: int, col: int, response) -> None:
         transaction_id = response["transaction_id"]
         ttl = int(response.get("ttl", 0))
 
-        self.sessions[transaction_id] = TrackedSession(
-            transaction_id=transaction_id,
-            operation_type="SINGLE",
-            seat_summary=f"{section}({row},{col})",
-            ttl_seconds=ttl,
-            created_at=time.time(),
-        )
+        self._track_session(transaction_id, "SINGLE", f"{section}({row},{col})", ttl)
         self.query_one("#tx-input", Input).value = transaction_id
 
         self.selected_map_section = section
@@ -515,13 +591,7 @@ class ConcertTextualApp(App):
         transaction_id = response["transaction_id"]
         ttl = int(response.get("ttl", 0))
 
-        self.sessions[transaction_id] = TrackedSession(
-            transaction_id=transaction_id,
-            operation_type="CLICK",
-            seat_summary=f"{section}({row},{col})",
-            ttl_seconds=ttl,
-            created_at=time.time(),
-        )
+        self._track_session(transaction_id, "CLICK", f"{section}({row},{col})", ttl)
         self.query_one("#tx-input", Input).value = transaction_id
 
         self.selected_map_section = section
@@ -634,13 +704,7 @@ class ConcertTextualApp(App):
         transaction_id = response["transaction_id"]
         ttl = int(response.get("ttl", 0))
 
-        self.sessions[transaction_id] = TrackedSession(
-            transaction_id=transaction_id,
-            operation_type="BATCH",
-            seat_summary=seat_summary,
-            ttl_seconds=ttl,
-            created_at=time.time(),
-        )
+        self._track_session(transaction_id, "BATCH", seat_summary, ttl)
         self.query_one("#tx-input", Input).value = transaction_id
 
         reserved_seats = response.get("reserved_seats", [])
@@ -658,6 +722,102 @@ class ConcertTextualApp(App):
     def _reserve_batch_seats_failed(self, seat_summary: str, error_message: str) -> None:
         self._set_status(f"Batch reserve failed: {error_message}")
         self._append_event(f"[RESERVE_BATCH] Failed: {error_message}")
+
+    def _reserve_pending_selections(self) -> None:
+        if not self.pending_selections:
+            self._set_status("No pending selections to reserve")
+            return
+
+        conflict_seats = []
+        for seat in self.pending_selections:
+            section = seat["section"]
+            row = seat["row"]
+            col = seat["col"]
+            grid = self.seat_map_snapshot.get(section, [])
+            if row < len(grid) and col < len(grid[row]) and col >= 0 and row >= 0:
+                if grid[row][col] != "AVAILABLE":
+                    conflict_seats.append(seat)
+
+        if conflict_seats:
+            conflict_msg = ", ".join(
+                f"{s['section']}({s['row']},{s['col']})" for s in conflict_seats
+            )
+            self.pending_selections = [
+                s for s in self.pending_selections
+                if s not in conflict_seats
+            ]
+            self._render_seat_map()
+            warning = f"Conflict: {conflict_msg} no longer available — removed from pending"
+            self._set_status(warning)
+            self._append_event(f"[SATURATED] {warning}")
+            if not self.pending_selections:
+                return
+
+        try:
+            self._ensure_client()
+        except ConcertClientError as exc:
+            self._set_status(f"Reserve pending failed: {exc}")
+            self._append_event(f"[RESERVE_SELECTED] Failed: {exc}")
+            return
+
+        seat_summary = ", ".join(
+            f"{s['section']}({s['row']},{s['col']})" for s in self.pending_selections
+        )
+        self._set_status(f"Reserving {len(self.pending_selections)} pending seats...")
+        self._append_event(f"[RESERVE_SELECTED] tx=start seats={seat_summary}")
+        threading.Thread(
+            target=self._reserve_pending_worker,
+            args=(list(self.pending_selections), seat_summary),
+            daemon=True,
+        ).start()
+
+    def _reserve_pending_worker(self, seats: List[dict], seat_summary: str) -> None:
+        try:
+            response = self._request(
+                lambda: self._ensure_client().reserve_selected(seats)
+            )
+            try:
+                self.call_from_thread(
+                    self._reserve_pending_succeeded,
+                    response,
+                    seat_summary,
+                )
+            except Exception:
+                self._reserve_pending_succeeded(response, seat_summary)
+        except ConcertClientError as exc:
+            try:
+                self.call_from_thread(
+                    self._reserve_pending_failed,
+                    seat_summary,
+                    str(exc),
+                )
+            except Exception:
+                self._reserve_pending_failed(seat_summary, str(exc))
+
+    def _reserve_pending_succeeded(self, response, seat_summary: str) -> None:
+        transaction_id = response["transaction_id"]
+        ttl = int(response.get("ttl", 0))
+
+        self._track_session(transaction_id, "PENDING_SELECTED", seat_summary, ttl)
+        self.query_one("#tx-input", Input).value = transaction_id
+
+        reserved_seats = response.get("reserved_seats", [])
+        if reserved_seats:
+            first_section = reserved_seats[0].get("section")
+            if first_section in {"VIP", "PREFERENTIAL", "GENERAL"}:
+                self.selected_map_section = first_section
+                self.query_one("#map-section-select", Select).value = first_section
+
+        self.pending_selections.clear()
+        self._render_seat_map()
+        self._set_status(f"Reserved {len(reserved_seats)} seats via RESERVE_SELECTED")
+        self._append_event(f"[RESERVE_SELECTED] tx={transaction_id} seats={seat_summary} ttl={ttl}s")
+        self._render_session_table()
+        self._refresh_query(silent=True)
+
+    def _reserve_pending_failed(self, seat_summary: str, error_message: str) -> None:
+        self._set_status(f"Reserve pending failed: {error_message}")
+        self._append_event(f"[RESERVE_SELECTED] Failed: {error_message}")
 
     def _confirm_transaction(self) -> None:
         tx_id = self._resolve_transaction_id_from_input()
@@ -839,37 +999,63 @@ class ConcertTextualApp(App):
             )
 
     @staticmethod
-    def _seat_token(state: str) -> str:
+    def _seat_cell(state: str) -> tuple[str, Optional[Style]]:
         if state == "AVAILABLE":
-            return "A"
+            return ("A", None)
         if state == "RESERVED":
-            return "R"
+            return ("R", Style(color="#d4a84b", bold=True))
+        if state == "OWN_RESERVED":
+            return ("Y", Style(color="#9ad4d6", bold=True))
         if state == "SOLD":
-            return "S"
-        return "?"
+            return ("S", Style(dim=True))
+        if state == "PENDING":
+            return ("P", Style(color="#6a9fb5", dim=True))
+        return ("?", Style(color="#ff4444"))
+
+    def _cancel_pending_seat_map_render(self) -> None:
+        if self._seat_map_render_timer is not None:
+            try:
+                self._seat_map_render_timer.stop()
+            except Exception:
+                pass
+            self._seat_map_render_timer = None
+
+    def _queue_seat_map_render(self) -> None:
+        self._cancel_pending_seat_map_render()
+        self._seat_map_render_timer = self.set_timer(0.15, self._render_seat_map)
 
     def _render_seat_map(self) -> None:
-        """Render seat map as a simple clickable table."""
+        """Render seat map with per-state colors and styles."""
+        self._cancel_pending_seat_map_render()
         table = self.query_one("#seat-map-table", DataTable)
         table.clear(columns=True)
 
         selected_grid = self.seat_map_snapshot.get(self.selected_map_section, [])
         if not selected_grid:
+            table.cursor_type = "none"
             self.query_one("#seat-map-legend", Static).update("No seat map data")
             return
 
+        table.cursor_type = "cell"
         num_cols = len(selected_grid[0])
         table.add_columns(*[str(col_idx) for col_idx in range(num_cols)])
 
         for row_idx, row in enumerate(selected_grid):
-            table.add_row(
-                *[self._seat_token(state) for state in row],
-                label=f"{row_idx:02d}",
-            )
+            cell_values = []
+            for col_idx, state in enumerate(row):
+                if any(p["section"] == self.selected_map_section and p["row"] == row_idx and p["col"] == col_idx for p in self.pending_selections):
+                    token, style = self._seat_cell("PENDING")
+                else:
+                    token, style = self._seat_cell(state)
+                if style is not None:
+                    cell_values.append(Text(token, style=style))
+                else:
+                    cell_values.append(token)
+            table.add_row(*cell_values, label=f"{row_idx:02d}")
 
         self.query_one(
             "#seat-map-legend", Static
-        ).update("A=AVAILABLE  R=RESERVED  S=SOLD  (click an available seat to reserve)")
+        ).update("A=AVAILABLE  P=PENDING  R=RESERVED  Y=YOURS  S=SOLD  (click available seats, then Confirm Selected Seats)")
 
     def _latest_session(self, active_only: bool) -> Optional[TrackedSession]:
         filtered = [

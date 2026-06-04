@@ -68,7 +68,8 @@ ERROR_CODE_TO_EXCEPTION = {
 
 
 class ConcertClient:
-    def __init__(self, host='localhost', port=9999):
+    def __init__(self, user_id: str = "", host='localhost', port=9999):
+        self.user_id = user_id
         self.host = host
         self.port = port
 
@@ -85,6 +86,7 @@ class ConcertClient:
         Raises:
             ConcertClientError: If network or protocol error occurs
         """
+        request["user_id"] = self.user_id
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect((self.host, self.port))
@@ -174,6 +176,27 @@ class ConcertClient:
         if not is_valid:
             raise InvalidInputError(f"Invalid reserve input: {error_msg}")
         
+        response = self.send_request(request)
+        return response
+
+    def reserve_selected(self, seats):
+        """
+        Reserve multiple seats atomically (used by TUI pending selection).
+
+        Args:
+            seats: List of dicts with keys "section", "row", "col"
+
+        Returns:
+            Response dict with transaction_id, ttl, and reserved_seats
+
+        Raises:
+            ServerError: If server error occurs
+        """
+        request = {
+            "action": "RESERVE_SELECTED",
+            "seats": seats,
+        }
+
         response = self.send_request(request)
         return response
 

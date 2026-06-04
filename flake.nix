@@ -15,11 +15,11 @@
       devShells.${system}.default = pkgs.mkShell {
         buildInputs = with pkgs; [
           python314
-          uv
           python314Packages.pytest
           python314Packages.black
           python314Packages.flake8
           python314Packages.textual
+          pnpm
         ];
       };
     };
