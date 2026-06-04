@@ -60,49 +60,84 @@
 - Startup cleanup must not race with client connections
 - Expiration fix changes behavior — verify against all test cases
 
+**Plans:** 2 plans in 2 waves
+
+**Wave 1** *(foundation — no dependencies)*
+- [x] `02-01-PLAN.md` — Fix expire_reservation dead code + startup cleanup + E2E tests
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [x] `02-02-PLAN.md` — Concurrent load test for expiration reliability
+
+**Cross-cutting constraints:**
+- All plans: `expire_reservation` dead code must be fixed before concurrent tests (EXP-01 → EXP-03)
+- All plans: startup cleanup runs before listener thread — no races with client connections
+- All plans: semaphores released during cleanup (not just seat state)
+
 ---
 
-### Phase 3: Fix Buy Near Expiry + Concurrent Cancellation
+### Phase 3: Fix Buy Near Expiry + Concurrent Cancellation ✓
 **Goal:** Eliminate race conditions in purchase-near-expiration and concurrent cancellation
+
+**Status:** Executed ✓
 
 **Requirements:** PCH-01, PCH-02, CNC-01, CNC-02
 
 **Success Criteria:**
-1. Purchase completes correctly even when session TTL expires concurrently
-2. No race between purchase handler and expiration monitor
-3. Cancellation releases seats correctly while other users modify seats
-4. No inconsistent seat states after concurrent cancellation
-5. All synchronization is correct under concurrent load
+1. ✅ Purchase completes correctly even when session TTL expires concurrently
+2. ✅ No race between purchase handler and expiration monitor
+3. ✅ Cancellation releases seats correctly while other users modify seats
+4. ✅ No inconsistent seat states after concurrent cancellation
+5. ✅ All synchronization is correct under concurrent load
 
-**Files likely modified:**
-- `src/server/concert_server.py` — Purchase and cancellation handlers
-- `src/server/monitor_thread.py` — Expiration/purchase race prevention
-- `src/shared_resources/` — Lock ordering verification
+**Plans:** 2 plans in 2 waves
+
+**Wave 1** *(foundation — no dependencies)*
+- [x] `03-01-PLAN.md` — Fix race conditions: semaphore release inside lock in expire_session + handle_cancel; concurrent cancel/expire stress test
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [x] `03-02-PLAN.md` — E2E tests: purchase-near-expiry (3 tests) + concurrent cancellation (3 tests); update race tests to use real expire_session path
+
+**Cross-cutting constraints:**
+- All plans: semaphore release must be inside `table_and_sections` lock (not after) to prevent seat-AVAILABLE but semaphore-unavailable window
+- All plans: `session.seats` read outside lock is safe for section-set computation; actual seat state verified inside lock
+- All plans: `table_and_sections` serialization via `mutex_table` prevents concurrent double-expire/confirm/cancel on overlapping sections
+
+**Files modified:**
+- `src/server/monitor_thread.py` — expire_session: semaphore release inside lock
+- `src/server/transactional_thread.py` — handle_cancel: semaphore release inside lock
+- `tests/concurrent_tests.py` — Added test_concurrent_cancel_and_expire stress test
+- `tests/test_transaction_races.py` — Use real expire_session path (not legacy expire_reservation)
+- `tests/test_phase3_e2e.py` (NEW) — 6 E2E tests for purchase-near-expiry + concurrent cancellation
 
 **Risks:**
-- Fixing races may introduce deadlocks if lock ordering wrong
-- Changes to cancellation affect concurrent seat state
+- ~~Fixing races may introduce deadlocks if lock ordering wrong~~ — Mitigated: all operations use `table_and_sections` with same lock ordering (`mutex_table` → sections in enum order)
+- ~~Changes to cancellation affect concurrent seat state~~ — Mitigated: CANCEL and RESERVE serialize on `table_and_sections`; stress test verifies no double-booking or seat loss
 
 ---
 
-### Phase 4: Visual Differentiation
+### Phase 4: Visual Differentiation ✓
 **Goal:** Users can distinguish own selected seats from other users' selections
+
+**Status:** Executed ✓
 
 **Requirements:** UI-01, UI-02, UI-03
 
 **Success Criteria:**
-1. Own selected seats display in different color/style from others' selections
-2. Clear legend or indicator explaining seat state colors
-3. Existing UI style preserved — no large redesign
+1. ✅ Own selected seats display in teal bold "Y" vs others' amber bold "R"
+2. ✅ Legend updated to "A=AVAILABLE  R=RESERVED  Y=YOURS  S=SOLD"
+3. ✅ Existing UI style preserved — no layout changes, no new widgets, no CSS changes
 
-**Files likely modified:**
-- `frontend_tui/app.py` — Seat rendering differentiation
-- `frontend_tui/widgets/` — Color/style configuration
-- `src/client/concert_client.py` — User ID in seat state messages
+**Plans:** 2 plans in 2 waves
 
-**Risks:**
-- Changes must not break existing seat display
-- Color differentiation must be accessible
+**Wave 1** *(foundation — no dependencies)*
+- [x] `04-01-PLAN.md` — Server-side OWN_RESERVED: SeatState enum extension + get_by_user_id helper + enriched handle_query_seat_map
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [x] `04-02-PLAN.md` — TUI per-state color rendering: _seat_cell() with per-cell Style via update_cell_at() + legend update
+
+**Cross-cutting constraints:**
+- All plans: OWN_RESERVED is view-only — never stored in SeatMatrix (only in query response)
+- All plans: handle_query_seat_map must only tag the requesting user's OWN sessions — never expose another user's ownership
 
 ---
 

@@ -1,8 +1,9 @@
 # ConcertSync — Project State
 
-**Current Phase:** Phase 2 — Fix Expiration + Restart Cleanup
-**Last Command:** `/gsd-execute-phase 1`
-**Last Updated:** 2026-06-01
+**Current Phase:** Phase 4 — Visual Differentiation
+**Last Command:** `/gsd-execute-phase 4`
+**Last Updated:** 2026-06-03
+**Status:** Phase 4 Executed ✓
 
 ## Points of Progress
 
@@ -11,9 +12,11 @@
 - [x] Requirements defined (`.planning/REQUIREMENTS.md`)
 - [x] Roadmap created (`.planning/ROADMAP.md`)
 - [x] Phase 1: User ID + Session TTL — Executed ✓ (2 plans, 2 waves)
-- [ ] Phase 2: Fix Expiration + Restart Cleanup — Pending
-- [ ] Phase 3: Buy Near Expiry + Concurrent Cancellation — Pending
-- [ ] Phase 4: Visual Differentiation — Pending
+- [x] Phase 2: Fix Expiration + Restart Cleanup — Executed ✓ (2 plans, 2 waves)
+- [x] Phase 3: Buy Near Expiry + Concurrent Cancellation — Executed ✓ (2 plans, 2 waves)
+- [x] Phase 4: Visual Differentiation — Executed ✓ (2 plans, 2 waves)
+   - [x] 04-01: Server-side OWN_RESERVED: SeatState enum + get_by_user_id + enriched handle_query_seat_map
+   - [x] 04-02: TUI per-state color rendering: _seat_cell() + update_cell_at() + legend update
 - [ ] Phase 5: Reservation Consistency — Pending
 - [ ] Phase 6: Closure + Saturated Zone + Audit Log — Pending
 - [ ] Phase 7: Concurrency Robustness Review — Pending
@@ -24,30 +27,28 @@ See: `.planning/PROJECT.md` (updated 2026-06-01)
 
 **Core value:** Multiple users can concurrently browse, select, and purchase concert seats without double-booking or losing reservations.
 
-**Current focus:** Phase 2 — Fix Expiration + Restart Cleanup
+**Current focus:** Phase 5 — Reservation Consistency
 
 ## Completed Phase
 
-**Phase 1: User ID + Session-Based TTL** ✓
+**Phase 4: Visual Differentiation** ✓
 
-Goal: Establish user identification and migrate TTL from per-seat to per-session model
+Goal: Users can distinguish own selected seats from other users' selections
 
-Requirements: USR-01 ✓, USR-02 ✓, SES-01 ✓, SES-02 ✓, SES-03 ✓, SES-04 ✓
+Requirements: UI-01 ✓, UI-02 ✓, UI-03 ✓
 
-Plans: 2 (01-01 ✓, 01-02 ✓)
+Plans: 2 (04-01 ✓, 04-02 ✓)
 
 ### What was built
-- LoginScreen: user enters display name on startup
-- SessionManager: thread-safe get_or_create, get_by_session_id, get_expired, remove
-- UserSession: dataclass with seats, TTL, is_expired, reset_ttl
-- user_id injection: ConcertClient injects in all requests, server validates for non-QUERY actions
-- Session-aware RESERVE: get_or_create, appends seat, resets TTL, returns session_id
-- Session-aware RESERVE_BATCH: appends all seats, resets TTL once
-- Session-aware CONFIRM/CANCEL: ownership check (user_id), generic error on mismatch
-- MonitorThread: polls session_manager.get_expired(), expire_session with double-check lock
-- TUI session tracking: _track_session handles session_id reuse, accumulates seat summaries
-- 5 E2E tests enabled
+- SeatState.OWN_RESERVED enum member (view-only, never stored in SeatMatrix)
+- SessionManager.get_by_user_id() — O(1) session lookup without create side effects
+- handle_query_seat_map enriched with ownership cross-reference: own RESERVED seats → "OWN_RESERVED", others' → "RESERVED"
+- _seat_cell() replacing _seat_token(): returns (token, Optional[Style]) per state
+- _render_seat_map() rewritten with per-cell styling via DataTable.update_cell_at()
+- OWN_RESERVED → teal bold "Y", RESERVED (other) → amber bold "R", SOLD → dimmed "S"
+- Legend updated: "A=AVAILABLE  R=RESERVED  Y=YOURS  S=SOLD"
+- No layout changes, no new widgets, no CSS changes (UI-03 preserved)
 
 ## Next Action
 
-Run `/gsd-plan-phase 2` to plan Phase 2 (Fix Expiration + Restart Cleanup).
+Phase 5 — Reservation Consistency: Pending
