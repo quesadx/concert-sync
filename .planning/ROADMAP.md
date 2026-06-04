@@ -141,10 +141,10 @@
 
 ---
 
-### Phase 5: Reservation Consistency
+### Phase 5: Reservation Consistency ✓
 **Goal:** Individual mode reserves ALL selected seats, not just the last one
 
-**Status:** Planned ✓
+**Status:** Executed ✓
 
 **Requirements:** CON-01, CON-02, CON-03
 
@@ -166,10 +166,10 @@
 **Plans:** 2 plans in 2 waves
 
 **Wave 1** *(foundation — no dependencies)*
-- [ ] `05-01-PLAN.md` — RESERVE_SELECTED server handler + ConcertClient.reserve_selected()
+- [x] `05-01-PLAN.md` — RESERVE_SELECTED server handler + ConcertClient.reserve_selected()
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] `05-02-PLAN.md` — TUI pending seat selection: toggle on click, "P" token, Reserve Pending button, updated legend
+- [x] `05-02-PLAN.md` — TUI pending seat selection: toggle on click, "P" token, Reserve Pending button, updated legend
 
 **Cross-cutting constraints:**
 - All plans: PENDING token is TUI-local — never sent to server, never returned by server
