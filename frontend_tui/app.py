@@ -111,6 +111,8 @@ class ConcertTextualApp(App):
         self.refresh_pending = False
         self.refresh_query_queued = False
         self.batch_pending = False
+        self.consecutive_failures: int = 0
+        self.server_disconnected: bool = False
         self.log_tailer = LogTailer(Path("logs/system.log"))
 
     def compose(self) -> ComposeResult:
@@ -422,6 +424,13 @@ class ConcertTextualApp(App):
         seat_map_payload: Dict[str, List[List[str]]],
         silent: bool,
     ) -> None:
+        if self.server_disconnected:
+            self.server_disconnected = False
+            self.query_one("#connection-status", Static).update(
+                f"Connected to {self.connected_host}:{self.connected_port} — live polling every second"
+            )
+            self._append_event("[CLIENT] Reconnected to server")
+        self.consecutive_failures = 0
         for section_name in self.section_snapshot:
             if section_name in sections:
                 self.section_snapshot[section_name] = sections[section_name]
@@ -437,7 +446,15 @@ class ConcertTextualApp(App):
             self._set_status("Section data refreshed.")
 
     def _refresh_query_failed(self, silent: bool, error_message: str) -> None:
-        if not silent:
+        self.consecutive_failures += 1
+        if self.consecutive_failures >= 3 and not self.server_disconnected:
+            self.server_disconnected = True
+            self._set_status("Server disconnected — some seats may have been released. Reconnect to continue.")
+            self._append_event("[CLIENT] Server disconnected (3 consecutive failures)")
+            self.query_one("#connection-status", Static).update(
+                "DISCONNECTED — server unreachable"
+            )
+        elif not silent:
             self._set_status(f"Refresh error: {error_message}")
             self._append_event(f"[CLIENT] Query failed: {error_message}")
 
