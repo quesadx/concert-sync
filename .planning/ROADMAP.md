@@ -144,6 +144,8 @@
 ### Phase 5: Reservation Consistency
 **Goal:** Individual mode reserves ALL selected seats, not just the last one
 
+**Status:** Planned ✓
+
 **Requirements:** CON-01, CON-02, CON-03
 
 **Success Criteria:**
@@ -153,13 +155,25 @@
 4. Existing workflows preserved
 
 **Files likely modified:**
-- `src/server/concert_server.py` — Reservation handler
-- `src/shared_resources/` — Reservation logic
-- `src/client/concert_client.py` — Reservation request format
+- `src/server/transactional_thread.py` — New RESERVE_SELECTED handler
+- `src/client/concert_client.py` — New reserve_selected() method
+- `frontend_tui/app.py` — Pending selection tracking and Reserve Pending button
 
 **Risks:**
 - Changing individual mode behavior may confuse existing clients
 - Atomic multi-seat reservation needs proper transaction semantics
+
+**Plans:** 2 plans in 2 waves
+
+**Wave 1** *(foundation — no dependencies)*
+- [ ] `05-01-PLAN.md` — RESERVE_SELECTED server handler + ConcertClient.reserve_selected()
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] `05-02-PLAN.md` — TUI pending seat selection: toggle on click, "P" token, Reserve Pending button, updated legend
+
+**Cross-cutting constraints:**
+- All plans: PENDING token is TUI-local — never sent to server, never returned by server
+- All plans: Existing RESERVE and RESERVE_BATCH paths preserved unchanged
 
 ---
 

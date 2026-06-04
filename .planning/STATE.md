@@ -1,9 +1,9 @@
 # ConcertSync — Project State
 
-**Current Phase:** Phase 4 — Visual Differentiation
-**Last Command:** `/gsd-execute-phase 4`
+**Current Phase:** Phase 5 — Reservation Consistency
+**Last Command:** `/gsd-plan-phase 5`
 **Last Updated:** 2026-06-03
-**Status:** Phase 4 Executed ✓
+**Status:** Phase 5 Planned ✓
 
 ## Points of Progress
 
@@ -17,7 +17,9 @@
 - [x] Phase 4: Visual Differentiation — Executed ✓ (2 plans, 2 waves)
    - [x] 04-01: Server-side OWN_RESERVED: SeatState enum + get_by_user_id + enriched handle_query_seat_map
    - [x] 04-02: TUI per-state color rendering: _seat_cell() + update_cell_at() + legend update
-- [ ] Phase 5: Reservation Consistency — Pending
+- [x] Phase 5: Reservation Consistency — Planned (2 plans, 2 waves)
+   - [ ] 05-01: RESERVE_SELECTED handler + ConcertClient.reserve_selected()
+   - [ ] 05-02: TUI pending seat selection + Reserve Pending button
 - [ ] Phase 6: Closure + Saturated Zone + Audit Log — Pending
 - [ ] Phase 7: Concurrency Robustness Review — Pending
 
@@ -51,4 +53,8 @@ Plans: 2 (04-01 ✓, 04-02 ✓)
 
 ## Next Action
 
-Phase 5 — Reservation Consistency: Pending
+Phase 5 — Reservation Consistency: Plans ready (2 plans in 2 waves). Proceed to execute.
+
+Requirements: CON-01, CON-02, CON-03
+
+Plans: 2 (05-01, 05-02)
