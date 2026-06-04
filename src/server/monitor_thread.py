@@ -31,8 +31,6 @@ class MonitorThread(threading.Thread):
         return [section for section in Section if section in section_set]
 
     def expire_session(self, session):
-        released_counts = {}
-
         seats_by_section = self._group_seats_by_section(session.seats)
         ordered_sections = self._ordered_sections(seats_by_section.keys())
 
@@ -42,8 +40,8 @@ class MonitorThread(threading.Thread):
             if current is None or current.state != ReservationStatus.ACTIVE:
                 return
 
+            released_counts = {section: 0 for section in ordered_sections}
             for section in ordered_sections:
-                released_counts[section] = 0
                 for row, col in seats_by_section[section]:
                     if self.server.seat_matrix.seats[section][row][col] == SeatState.RESERVED:
                         self.server.seat_matrix.seats[section][row][col] = SeatState.AVAILABLE
@@ -51,9 +49,9 @@ class MonitorThread(threading.Thread):
 
             self.server.session_manager.remove(session.user_id)
 
-        for section, count in released_counts.items():
-            if count > 0:
-                self.server.semaphore_mgr.release_multiple(section, count)
+            for section, count in released_counts.items():
+                if count > 0:
+                    self.server.semaphore_mgr.release_multiple(section, count)
 
         total = sum(released_counts.values())
         self.server.global_log.append(
