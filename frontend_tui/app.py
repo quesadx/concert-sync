@@ -699,6 +699,31 @@ class ConcertTextualApp(App):
             self._set_status("No pending selections to reserve")
             return
 
+        conflict_seats = []
+        for seat in self.pending_selections:
+            section = seat["section"]
+            row = seat["row"]
+            col = seat["col"]
+            grid = self.seat_map_snapshot.get(section, [])
+            if row < len(grid) and col < len(grid[row]) and col >= 0 and row >= 0:
+                if grid[row][col] != "AVAILABLE":
+                    conflict_seats.append(seat)
+
+        if conflict_seats:
+            conflict_msg = ", ".join(
+                f"{s['section']}({s['row']},{s['col']})" for s in conflict_seats
+            )
+            self.pending_selections = [
+                s for s in self.pending_selections
+                if s not in conflict_seats
+            ]
+            self._render_seat_map()
+            warning = f"Conflict: {conflict_msg} no longer available — removed from pending"
+            self._set_status(warning)
+            self._append_event(f"[SATURATED] {warning}")
+            if not self.pending_selections:
+                return
+
         try:
             self._ensure_client()
         except ConcertClientError as exc:
