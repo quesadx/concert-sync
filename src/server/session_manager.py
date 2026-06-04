@@ -53,14 +53,16 @@ class SessionManager:
     def get_expired(self) -> List[UserSession]:
         with self._lock:
             return [
-                s for s in self._sessions.values()
+                s
+                for s in self._sessions.values()
                 if s.state == ReservationStatus.ACTIVE and s.is_expired
             ]
 
     def get_all_active(self) -> List[UserSession]:
         with self._lock:
             return [
-                s for s in self._sessions.values()
+                s
+                for s in self._sessions.values()
                 if s.state == ReservationStatus.ACTIVE
             ]
 
@@ -68,7 +70,9 @@ class SessionManager:
         with self._lock:
             return self._sessions.get(user_id, None)
 
-    def reclaim_session(self, session_id: str, new_user_id: str) -> Optional[UserSession]:
+    def reclaim_session(
+        self, session_id: str, new_user_id: str
+    ) -> Optional[UserSession]:
         """
         Look up session by its UUID and remap to new_user_id.
 

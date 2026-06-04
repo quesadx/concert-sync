@@ -31,6 +31,12 @@ class MonitorThread(threading.Thread):
         return [section for section in Section if section in section_set]
 
     def expire_session(self, session):
+        # EXPR-01/EXPR-02 — TTL expiration race safety:
+        # The double-check inside table_and_sections lock prevents racing
+        # with CONFIRM: if CONFIRM changed session state between
+        # get_expired() and our lock acquisition, the double-check catches
+        # it and returns early. Semaphore release is inside the same
+        # critical section, ensuring seats and slots release atomically.
         seats_by_section = self._group_seats_by_section(session.seats)
         ordered_sections = self._ordered_sections(seats_by_section.keys())
 
@@ -43,8 +49,13 @@ class MonitorThread(threading.Thread):
             released_counts = {section: 0 for section in ordered_sections}
             for section in ordered_sections:
                 for row, col in seats_by_section[section]:
-                    if self.server.seat_matrix.seats[section][row][col] == SeatState.RESERVED:
-                        self.server.seat_matrix.seats[section][row][col] = SeatState.AVAILABLE
+                    if (
+                        self.server.seat_matrix.seats[section][row][col]
+                        == SeatState.RESERVED
+                    ):
+                        self.server.seat_matrix.seats[section][row][
+                            col
+                        ] = SeatState.AVAILABLE
                         released_counts[section] += 1
 
             self.server.session_manager.remove(session.user_id)
