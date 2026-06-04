@@ -10,7 +10,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from rich.style import Style
-from textual.coordinate import Coordinate
+from rich.text import Text
 from textual.widgets import Button, DataTable, Footer, Header, Input, RichLog, Select, Static
 
 from frontend_tui.login_screen import LoginScreen
@@ -1013,16 +1013,17 @@ class ConcertTextualApp(App):
         table.add_columns(*[str(col_idx) for col_idx in range(num_cols)])
 
         for row_idx, row in enumerate(selected_grid):
-            cells = []
+            cell_values = []
             for col_idx, state in enumerate(row):
                 if any(p["section"] == self.selected_map_section and p["row"] == row_idx and p["col"] == col_idx for p in self.pending_selections):
-                    cells.append(self._seat_cell("PENDING"))
+                    token, style = self._seat_cell("PENDING")
                 else:
-                    cells.append(self._seat_cell(state))
-            table.add_row(*[token for token, _ in cells], label=f"{row_idx:02d}")
-            for col_idx, (token, style) in enumerate(cells):
+                    token, style = self._seat_cell(state)
                 if style is not None:
-                    table.update_cell_at(Coordinate(row_idx, col_idx), token, style=style)
+                    cell_values.append(Text(token, style=style))
+                else:
+                    cell_values.append(token)
+            table.add_row(*cell_values, label=f"{row_idx:02d}")
 
         self.query_one(
             "#seat-map-legend", Static

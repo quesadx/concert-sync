@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, call, patch
 
 import pytest
+from rich.text import Text
 
 from frontend_tui.app import ConcertTextualApp
 
@@ -82,7 +83,6 @@ class TestRenderSeatMap:
 
         assert table.cursor_type == "cell"
         assert table.add_row.call_count == 3
-        assert table.update_cell_at.call_count > 0
 
     def test_pending_selection_renders_as_pending(self, app):
         """Pending selections show 'P' style in cell."""
@@ -92,11 +92,12 @@ class TestRenderSeatMap:
 
         table = self._call_render(app)
 
-        # add_row called once with "P" token
+        # PENDING has style → rich Text object passed to add_row
         add_row_args = table.add_row.call_args
         assert add_row_args is not None
-        token = add_row_args[0][0]
-        assert token == "P"
+        cell = add_row_args[0][0]
+        assert isinstance(cell, Text)
+        assert cell.plain == "P"
 
     def test_different_section_selected(self, app):
         """Switching sections renders the correct section grid."""
@@ -156,4 +157,4 @@ class TestRenderSeatMap:
         table = self._call_render(app)
 
         assert table.cursor_type == "none"
-        table.update_cell_at.assert_not_called()
+        table.add_row.assert_not_called()
