@@ -57,6 +57,13 @@ class SessionManager:
                 if s.state == ReservationStatus.ACTIVE and s.is_expired
             ]
 
+    def get_all_active(self) -> List[UserSession]:
+        with self._lock:
+            return [
+                s for s in self._sessions.values()
+                if s.state == ReservationStatus.ACTIVE
+            ]
+
     def get_by_user_id(self, user_id: str) -> Optional[UserSession]:
         with self._lock:
             return self._sessions.get(user_id, None)
