@@ -68,6 +68,35 @@ class SessionManager:
         with self._lock:
             return self._sessions.get(user_id, None)
 
+    def reclaim_session(self, session_id: str, new_user_id: str) -> Optional[UserSession]:
+        """
+        Look up session by its UUID and remap to new_user_id.
+
+        This enables session persistence across client disconnects —
+        the user provides their previous session_id and reclaims active reservations.
+
+        Args:
+            session_id: UUID session_id to reclaim
+            new_user_id: New user_id to map the session to
+
+        Returns:
+            UserSession if found and reclaimed, None otherwise.
+        """
+        with self._lock:
+            for session in self._sessions.values():
+                if session.session_id == session_id:
+                    if session.state == ReservationStatus.ACTIVE:
+                        # Remove old mapping, create new mapping
+                        old_user_id = session.user_id
+                        self._sessions.pop(old_user_id, None)
+                        session.user_id = new_user_id
+                        self._sessions[new_user_id] = session
+                        return session
+                    else:
+                        # Session already expired/confirmed/cancelled
+                        return None
+            return None
+
     def remove(self, user_id: str) -> Optional[UserSession]:
         with self._lock:
             return self._sessions.pop(user_id, None)
