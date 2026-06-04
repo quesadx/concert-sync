@@ -108,6 +108,7 @@ class ConcertTextualApp(App):
         self.thread_history: List[int] = []
         self.error_history: List[int] = []
         self.pending_clicks: Set[tuple[str, int, int]] = set()
+        self._seat_map_render_timer = None
         self.refresh_pending = False
         self.refresh_query_queued = False
         self.batch_pending = False
@@ -263,7 +264,7 @@ class ConcertTextualApp(App):
                 else:
                     self.pending_selections.append(seat_entry)
                     self._set_status(f"Seat selected, click Reserve Pending to confirm")
-                self._render_seat_map()
+                self._queue_seat_map_render()
             else:
                 self._set_status(
                     f"Selected {section}({row_idx},{col_idx}) - State: {state}"
@@ -983,8 +984,21 @@ class ConcertTextualApp(App):
             return ("P", Style(color="#6a9fb5", dim=True))
         return ("?", Style(color="#ff4444"))
 
+    def _cancel_pending_seat_map_render(self) -> None:
+        if self._seat_map_render_timer is not None:
+            try:
+                self._seat_map_render_timer.stop()
+            except Exception:
+                pass
+            self._seat_map_render_timer = None
+
+    def _queue_seat_map_render(self) -> None:
+        self._cancel_pending_seat_map_render()
+        self._seat_map_render_timer = self.set_timer(0.15, self._render_seat_map)
+
     def _render_seat_map(self) -> None:
         """Render seat map with per-state colors and styles."""
+        self._cancel_pending_seat_map_render()
         table = self.query_one("#seat-map-table", DataTable)
         table.clear(columns=True)
 
