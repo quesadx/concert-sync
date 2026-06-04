@@ -72,6 +72,21 @@ QLabel {
     color: #d8e6f5;
 }
 
+/* ── Legend Swatches ──────────────────────────────────────────────────────── */
+QLabel#seat-legend-swatch {
+    min-width: 16px;
+    max-width: 16px;
+    min-height: 12px;
+    max-height: 12px;
+    border: 1px solid #3b4a64;
+    border-radius: 2px;
+}
+
+/* ── Seat Map Table Cell Text (TTL overlay) ──────────────────────────────── */
+QTableWidget::item {
+    font-size: 11px;
+}
+
 /* ── Status Bar ──────────────────────────────────────────────────────────── */
 QStatusBar {
     background-color: #0f1722;

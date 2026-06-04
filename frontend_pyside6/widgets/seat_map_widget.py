@@ -10,10 +10,10 @@ Port of frontend_tui/app.py _render_seat_map() (lines 1027-1059) and
 on_data_table_cell_selected() (lines 259-301) to PySide6.
 """
 
-from typing import Set
+from typing import Dict, Set
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QBrush
+from PySide6.QtGui import QBrush, QFont
 from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 
 from frontend_pyside6.models.seat_state import SEAT_COLORS
@@ -49,6 +49,8 @@ class SeatMapWidget(QTableWidget):
         self.cellClicked.connect(self._on_cell_clicked)
         self.setEditTriggers(QTableWidget.NoEditTriggers)
         self.setSelectionMode(QTableWidget.SingleSelection)
+        self.horizontalHeader().setDefaultSectionSize(48)
+        self.verticalHeader().setDefaultSectionSize(48)
         self._pending_coords: Set[tuple[int, int]] = set()
         self._own_reserved_coords: Set[tuple[int, int]] = set()
 
@@ -72,19 +74,28 @@ class SeatMapWidget(QTableWidget):
         grid_data: list[list[str]],
         pending_coords: Set[tuple[int, int]],
         own_coords: Set[tuple[int, int]],
+        own_cell_ttl: Dict[tuple[int, int], int] | None = None,
     ) -> None:
         """Full refresh of the grid from server data.
 
         Rebuilds every cell with the correct background color based on
-        server state, pending selections, and own reservations.
+        server state, pending selections, and own reservations. Adds
+        tooltips for every cell and TTL countdown text on owned cells.
 
         Args:
             grid_data: 2D list of server state strings (AVAILABLE, RESERVED, SOLD).
             pending_coords: Set of (row, col) tuples currently pending local selection.
             own_coords: Set of (row, col) tuples reserved by this user's session.
+            own_cell_ttl: Dict mapping (row, col) to remaining TTL seconds for
+                cells owned by this user (only for ACTIVE sessions). Defaults to
+                empty dict if None.
         """
+        if own_cell_ttl is None:
+            own_cell_ttl = {}
         self._pending_coords = pending_coords
         self._own_reserved_coords = own_coords
+        _ttl_font = QFont()
+        _ttl_font.setPointSize(7)
         for r, row_data in enumerate(grid_data):
             for c, state in enumerate(row_data):
                 item = QTableWidgetItem()
@@ -93,6 +104,16 @@ class SeatMapWidget(QTableWidget):
                 item.setBackground(QBrush(color))
                 item.setData(Qt.UserRole, state)  # Store original server state
                 item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                # Tooltip: section(row,col) — STATE
+                item.setToolTip(
+                    f"{self.section_name}({r},{c}) — {display_state}"
+                )
+                # TTL countdown text overlay on owned cells
+                if display_state == "OWN_RESERVED":
+                    ttl = own_cell_ttl.get((r, c), 0)
+                    if ttl > 0:
+                        item.setText(f"{ttl}s")
+                        item.setFont(_ttl_font)
                 self.setItem(r, c, item)
 
     def _resolve_display_state(self, row: int, col: int, server_state: str) -> str:

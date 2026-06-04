@@ -3,7 +3,7 @@
 Mirrors TrackedSession from frontend_tui/app.py exactly — same fields, properties, behavior.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import time
 
 
@@ -18,6 +18,7 @@ class TrackedSession:
         ttl_seconds: Reservation time-to-live in seconds (typically 300).
         created_at: Unix timestamp when the session was created.
         state: Session state string ("ACTIVE", "CONFIRMED", "CANCELLED", "EXPIRED").
+        seats: List of seat dicts with section/row/col for per-coordinate TTL lookup.
     """
 
     transaction_id: str
@@ -26,6 +27,7 @@ class TrackedSession:
     ttl_seconds: int
     created_at: float
     state: str = "ACTIVE"
+    seats: list = field(default_factory=list)
 
     @property
     def expires_at(self) -> float:

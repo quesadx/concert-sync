@@ -23,6 +23,7 @@ from PySide6.QtCore import QSettings, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -166,6 +167,37 @@ class ConcertMainWindow(QMainWindow):
         selector_layout.addWidget(self.section_combo)
         selector_layout.addStretch()
         right_panel.addLayout(selector_layout)
+
+        # ── Color legend ──────────────────────────────────────────────────
+        legend_layout = QHBoxLayout()
+        legend_states = [
+            ("AVAILABLE", "#4CAF50", "Available"),
+            ("OWN_RESERVED", "#2196F3", "Own Reserved"),
+            ("RESERVED", "#FF9800", "Reserved"),
+            ("SOLD", "#F44336", "Sold"),
+            ("PENDING", "#9C27B0", "Pending"),
+        ]
+        for state_id, color, label_text in legend_states:
+            frame = QFrame()
+            frame.setFrameStyle(QFrame.StyledPanel)
+            frame.setStyleSheet(
+                f"border: 1px solid #3b4a64; border-radius: 3px; padding: 2px;"
+            )
+            pair_layout = QHBoxLayout(frame)
+            pair_layout.setContentsMargins(2, 2, 4, 2)
+            pair_layout.setSpacing(4)
+            swatch = QLabel("  ")
+            swatch.setObjectName("seat-legend-swatch")
+            swatch.setStyleSheet(
+                f"background-color: {color}; min-width: 16px; max-width: 16px;"
+                f" min-height: 12px; max-height: 12px;"
+                f" border: 1px solid #3b4a64; border-radius: 2px;"
+            )
+            pair_layout.addWidget(swatch)
+            pair_layout.addWidget(QLabel(label_text))
+            legend_layout.addWidget(frame)
+        legend_layout.addStretch()
+        right_panel.addLayout(legend_layout)
 
         # ── Seat maps (one per section, created upfront) ──────────────────
         self.seat_maps: Dict[str, SeatMapWidget] = {}
@@ -372,6 +404,7 @@ class ConcertMainWindow(QMainWindow):
             )
 
         self._render_seat_map()
+        self._update_reserve_button()
 
     # ════════════════════════════════════════════════════════════════════════
     # Reserve Selected (unified batch mode — RSRV-01)
@@ -412,7 +445,8 @@ class ConcertMainWindow(QMainWindow):
             f"{s['section']}({s['row']},{s['col']})" for s in seat_objects
         )
 
-        self._track_session(tx_id, "RESERVE_BATCH", seat_summary, ttl)
+        session = self._track_session(tx_id, "RESERVE_BATCH", seat_summary, ttl)
+        session.seats = list(self.pending_selections)
 
         for s in seat_objects:
             self.own_reserved_coords.add((s["section"], s["row"], s["col"]))
@@ -582,9 +616,17 @@ class ConcertMainWindow(QMainWindow):
 
         Called on every poll success and after reservation/confirm/cancel.
         """
-        self.section_stats.update_counts(self.section_snapshot)
+        # Compute pending counts per section
+        pending_counts: dict[str, int] = {"VIP": 0, "PREFERENTIAL": 0, "GENERAL": 0}
+        for s in self.pending_selections:
+            section = s.get("section", "")
+            if section in pending_counts:
+                pending_counts[section] += 1
+
+        self.section_stats.update_counts(self.section_snapshot, pending=pending_counts)
         self._render_seat_map()
         self.transaction_panel.update_sessions(self.sessions)
+        self._update_reserve_button()
 
         # Tail server log file for new lines
         try:
@@ -620,7 +662,24 @@ class ConcertMainWindow(QMainWindow):
             if s_name == section:
                 own_coords.add((r, c))
 
-        widget.update_grid(grid, pending_coords, own_coords)
+        # Build TTL overlay dict from active sessions
+        own_cell_ttl: Dict[tuple[int, int], int] = {}
+        for session in self.sessions.values():
+            if session.state != "ACTIVE":
+                continue
+            ttl_remaining = session.ttl_remaining()
+            for seat in session.seats:
+                if seat.get("section") == section:
+                    own_cell_ttl[(seat["row"], seat["col"])] = ttl_remaining
+
+        widget.update_grid(
+            grid, pending_coords, own_coords, own_cell_ttl=own_cell_ttl
+        )
+
+    def _update_reserve_button(self) -> None:
+        """Update the Reserve button text to show pending selection count."""
+        count = len(self.pending_selections)
+        self.reserve_btn.setText(f"Reserve Selected ({count})")
 
     @staticmethod
     def _build_empty_seat_map() -> Dict[str, List[List[str]]]:
