@@ -990,9 +990,11 @@ class ConcertTextualApp(App):
 
         selected_grid = self.seat_map_snapshot.get(self.selected_map_section, [])
         if not selected_grid:
+            table.cursor_type = "none"
             self.query_one("#seat-map-legend", Static).update("No seat map data")
             return
 
+        table.cursor_type = "cell"
         num_cols = len(selected_grid[0])
         table.add_columns(*[str(col_idx) for col_idx in range(num_cols)])
 
