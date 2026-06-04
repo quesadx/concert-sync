@@ -3,6 +3,7 @@ from enum import Enum
 class SeatState(Enum):
     AVAILABLE = "AVAILABLE"
     RESERVED = "RESERVED"
+    OWN_RESERVED = "OWN_RESERVED"  # view-only — never stored in SeatMatrix
     SOLD = "SOLD"
 
 class Section(Enum):

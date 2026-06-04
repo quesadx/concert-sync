@@ -20,7 +20,21 @@
           python314Packages.black
           python314Packages.flake8
           python314Packages.textual
+          opencode
+          gsd
+          pnpm
         ];
+        shellHook = ''
+          export LD_LIBRARY_PATH=${libPath}:$LD_LIBRARY_PATH
+          export NPM_CONFIG_PREFIX=$PWD/.npm-global
+          export PATH=$PWD/.npm-global/bin:$PATH
+
+          # Auto-verify or install the gsd-sdk locally into this shell's pathway
+          if [ ! -d "$PWD/.npm-global/lib/node_modules/get-shit-done-cc" ]; then
+            echo "Installing GSD SDK for OpenCode subagents..."
+            npm install -g get-shit-done-cc
+          fi
+        '';
       };
     };
 }
