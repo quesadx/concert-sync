@@ -15,19 +15,19 @@ VISUAL_STATES = ("AVAILABLE", "OWN_RESERVED", "RESERVED", "SOLD", "PENDING")
 # Mirrors TUI _seat_cell() styles at frontend_tui/app.py lines 1001-1013,
 # adapted to the richer color palette specified in UI-SPEC §Seat Map State Colors.
 SEAT_COLORS = {
-    "AVAILABLE": QColor("#4CAF50"),       # Green — available for selection
-    "OWN_RESERVED": QColor("#2196F3"),    # Blue — reserved by current user
-    "RESERVED": QColor("#FF9800"),        # Orange — reserved by another user
-    "SOLD": QColor("#F44336"),            # Red — confirmed / permanently sold
-    "PENDING": QColor("#9C27B0"),         # Purple — locally selected, not yet reserved
+    "AVAILABLE": QColor("#4CAF50"),  # Green — available for selection
+    "OWN_RESERVED": QColor("#2196F3"),  # Blue — reserved by current user
+    "RESERVED": QColor("#FF9800"),  # Orange — reserved by another user
+    "SOLD": QColor("#F44336"),  # Red — confirmed / permanently sold
+    "PENDING": QColor("#9C27B0"),  # Purple — locally selected, not yet reserved
 }
 
 # ── Event Log Category Colors ─────────────────────────────────────────────────
 # Colors for timestamped log entries per UI-SPEC §Event Log Category Colors.
 CATEGORY_COLORS = {
-    "LOCAL": "#4CAF50",     # Green — actions initiated by this user
-    "REMOTE": "#FF9800",    # Orange — actions by other users
-    "ERROR": "#F44336",     # Red — protocol errors, connection failures
-    "SERVER": "#9E9E9E",    # Grey — server lifecycle events
-    "EXPIRE": "#795548",    # Brown — TTL expiration events
+    "LOCAL": "#4CAF50",  # Green — actions initiated by this user
+    "REMOTE": "#FF9800",  # Orange — actions by other users
+    "ERROR": "#F44336",  # Red — protocol errors, connection failures
+    "SERVER": "#9E9E9E",  # Grey — server lifecycle events
+    "EXPIRE": "#795548",  # Brown — TTL expiration events
 }

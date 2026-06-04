@@ -19,8 +19,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from frontend_pyside6.models.tracked_session import TrackedSession
-
 
 class TransactionPanel(QWidget):
     """Transaction management with session tracking table and TTL display.
@@ -86,12 +84,16 @@ class TransactionPanel(QWidget):
         self.session_table.setRowCount(len(sorted_sessions[:30]))
         for row_idx, session in enumerate(sorted_sessions[:30]):
             ttl_text = (
-                f"{session.ttl_remaining():>3}s"
-                if session.state == "ACTIVE"
-                else "-"
+                f"{session.ttl_remaining():>3}s" if session.state == "ACTIVE" else "-"
             )
-            self.session_table.setItem(row_idx, 0, QTableWidgetItem(session.transaction_id))
-            self.session_table.setItem(row_idx, 1, QTableWidgetItem(session.operation_type))
+            self.session_table.setItem(
+                row_idx, 0, QTableWidgetItem(session.transaction_id)
+            )
+            self.session_table.setItem(
+                row_idx, 1, QTableWidgetItem(session.operation_type)
+            )
             self.session_table.setItem(row_idx, 2, QTableWidgetItem(session.state))
             self.session_table.setItem(row_idx, 3, QTableWidgetItem(ttl_text))
-            self.session_table.setItem(row_idx, 4, QTableWidgetItem(session.seat_summary))
+            self.session_table.setItem(
+                row_idx, 4, QTableWidgetItem(session.seat_summary)
+            )

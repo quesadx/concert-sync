@@ -248,9 +248,7 @@ class ConcertMainWindow(QMainWindow):
 
         try:
             self.client.query()  # Test connection
-            self.status_bar.showMessage(
-                f"Connected to {host}:{port} as {self.user_id}"
-            )
+            self.status_bar.showMessage(f"Connected to {host}:{port} as {self.user_id}")
             self._log_event("LOCAL", f"Connected to {host}:{port}")
             self._refresh_all()
         except ConcertClientError as exc:
@@ -278,11 +276,13 @@ class ConcertMainWindow(QMainWindow):
             return
 
         try:
-            response = self.client.send_request({
-                "action": "QUERY",
-                "user_id": self.user_id,
-                "session_id": session_id,
-            })
+            _ = self.client.send_request(
+                {
+                    "action": "QUERY",
+                    "user_id": self.user_id,
+                    "session_id": session_id,
+                }
+            )
             self._log_event("LOCAL", f"Reclaimed session {session_id}")
             self._refresh_all()
         except ConcertClientError as exc:
@@ -366,9 +366,7 @@ class ConcertMainWindow(QMainWindow):
             self.pending_selections.pop(existing_idx)
             self.status_bar.showMessage(f"Deselected {section}({row},{col})")
         else:
-            self.pending_selections.append(
-                {"section": section, "row": row, "col": col}
-            )
+            self.pending_selections.append({"section": section, "row": row, "col": col})
             self.status_bar.showMessage(
                 f"Selected {section}({row},{col}) — {len(self.pending_selections)} pending"
             )
