@@ -133,7 +133,7 @@ class PollWorker(QObject):
     Mirrors _refresh_query_worker from frontend_tui/app.py lines 422-448.
     """
 
-    finished = Signal(dict, dict)  # sections, seat_map_payload
+    finished = Signal(dict, dict, object)  # sections, seat_map_payload, user_session
     error = Signal(str)
 
     def __init__(self, client: ConcertClient) -> None:
@@ -155,7 +155,8 @@ class PollWorker(QObject):
             sections = response.get("sections", {})
             seat_map_response = self.client.query_seat_map()
             seat_map_payload = seat_map_response.get("seat_map", {})
-            self.finished.emit(sections, seat_map_payload)
+            user_session = seat_map_response.get("user_session", None)
+            self.finished.emit(sections, seat_map_payload, user_session)
         except ConcertClientError as e:
             self.error.emit(str(e))
 

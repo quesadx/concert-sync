@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set
 from uuid import uuid4
 
-from PySide6.QtCore import QSettings, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -76,7 +76,7 @@ class ConcertMainWindow(QMainWindow):
         server_disconnected: Whether the server notified a disconnect.
     """
 
-    _refresh_complete = Signal(dict, dict)  # sections, seat_map_payload
+    _refresh_complete = Signal(dict, dict, object)  # sections, seat_map_payload, user_session
     _refresh_failed = Signal(str)  # error message
 
     def __init__(self) -> None:
@@ -130,12 +130,6 @@ class ConcertMainWindow(QMainWindow):
 
         self.connection_panel = ConnectionPanel()
         left_panel.addWidget(self.connection_panel)
-
-        # ── QSettings: restore stored session_id on startup ───────────────
-        settings = QSettings("ConcertSync", "PySide6GUI")
-        stored_session_id = settings.value("session_id", "")
-        if stored_session_id:
-            self.connection_panel.session_id_input.setText(stored_session_id)
 
         left_panel.addSpacing(8)
 
@@ -243,7 +237,6 @@ class ConcertMainWindow(QMainWindow):
 
         # ── Signal-slot wiring ────────────────────────────────────────────
         self.connection_panel.connect_requested.connect(self._connect_client)
-        self.connection_panel.reclaim_requested.connect(self._on_reclaim_session)
         self.transaction_panel.confirm_requested.connect(self._on_confirm)
         self.transaction_panel.cancel_requested.connect(self._on_cancel)
         self.reserve_btn.clicked.connect(self._on_reserve_selected)
@@ -264,9 +257,7 @@ class ConcertMainWindow(QMainWindow):
     def _connect_client(self, host: str = "localhost", port: int = 9999) -> None:
         """Connect to the ConcertSync server and perform initial query.
 
-        Mirrors ConcertTextualApp._connect_client (app.py lines 352-380).
-
-        BLOCKER #1 fix: Reads user_id from the ConnectionPanel input field.
+        Reads user_id from the ConnectionPanel input field.
         Auto-generates a UUID-based user_id if the input is empty. The server
         requires a non-empty user_id for OWN_RESERVED seat detection.
 
@@ -274,7 +265,7 @@ class ConcertMainWindow(QMainWindow):
             host: Server hostname or IP address.
             port: Server TCP port.
         """
-        # ── BLOCKER #1 fix: read user_id, auto-generate if empty ──────────
+        # ── Read user_id, auto-generate if empty ─────────────────────────
         user_id = self.connection_panel.user_id_input.text().strip()
         if not user_id:
             user_id = f"user_{uuid4().hex[:8]}"
@@ -301,38 +292,6 @@ class ConcertMainWindow(QMainWindow):
             self._log_event("ERROR", f"Connection failed: {exc}")
 
     # ════════════════════════════════════════════════════════════════════════
-    # Session Reclaim (BLOCKER #2 — SESS-01/SESS-02)
-    # ════════════════════════════════════════════════════════════════════════
-
-    @Slot(str)
-    def _on_reclaim_session(self, session_id: str) -> None:
-        """Reclaim a previous session by sending QUERY with a stored session_id.
-
-        BLOCKER #2 fix: Reconnects the user to a previous session so reserved
-        seats survive client disconnect/reconnect. Sends QUERY with the stored
-        session_id, then refreshes the full UI state.
-
-        Args:
-            session_id: The session identifier to reclaim.
-        """
-        if self.client is None:
-            self._log_event("ERROR", "Cannot reclaim session: not connected")
-            return
-
-        try:
-            _ = self.client.send_request(
-                {
-                    "action": "QUERY",
-                    "user_id": self.user_id,
-                    "session_id": session_id,
-                }
-            )
-            self._log_event("LOCAL", f"Reclaimed session {session_id}")
-            self._refresh_all()
-        except ConcertClientError as exc:
-            self._log_event("ERROR", f"Session reclaim failed: {exc}")
-
-    # ════════════════════════════════════════════════════════════════════════
     # Polling
     # ════════════════════════════════════════════════════════════════════════
 
@@ -355,17 +314,63 @@ class ConcertMainWindow(QMainWindow):
         worker.error.connect(self._on_poll_error)
         run_worker(worker)
 
-    @Slot(dict, dict)
-    def _on_poll_success(self, sections: dict, seat_map_payload: dict) -> None:
-        """Handle successful poll: update snapshots and render all widgets.
+    @Slot(dict, dict, object)
+    def _on_poll_success(self, sections: dict, seat_map_payload: dict, user_session: object) -> None:
+        """Handle successful poll: update snapshots, parse user session, render all widgets.
 
         Args:
             sections: Section count dict e.g. {'VIP': {'available': 50, ...}, ...}
             seat_map_payload: Full seat map dict from QUERY_SEAT_MAP response.
+            user_session: Active session dict for the user, or None if no active session.
         """
         self.section_snapshot = sections
         self.seat_map_snapshot = seat_map_payload
+        self._sync_user_session(user_session)
         self._render_all()
+
+    def _sync_user_session(self, user_session: object) -> None:
+        """Sync client-side session tracking with server-side active session.
+
+        When the user has an active session on the server (detected via
+        QUERY_SEAT_MAP response), create a TrackedSession entry locally
+        so it appears in the session table with TTL countdown. Auto-fills
+        the TX ID input for one-click confirm/cancel.
+
+        Args:
+            user_session: Dict with session_id, seats, ttl_secs, last_activity
+                          from the server, or None if no active session.
+        """
+        if user_session is None:
+            return
+
+        session_id = user_session.get("session_id", "")
+        seat_list = user_session.get("seats", [])
+        ttl_secs = user_session.get("ttl_secs", 300)
+        last_activity = user_session.get("last_activity", 0)
+
+        if not session_id or not seat_list:
+            return
+
+        seat_summary = ", ".join(
+            f"{s['section']}({s['row']},{s['col']})" for s in seat_list
+        )
+
+        if session_id in self.sessions:
+            self.sessions[session_id].created_at = last_activity
+        else:
+            session = TrackedSession(
+                transaction_id=session_id,
+                operation_type="AUTO_LOADED",
+                seat_summary=seat_summary,
+                ttl_seconds=ttl_secs,
+                created_at=last_activity,
+            )
+            session.seats = seat_list
+            self.sessions[session_id] = session
+            self.connection_panel.set_session_id(session_id)
+            self._log_event("LOCAL", f"Auto-loaded session {session_id} with {len(seat_list)} seat(s)")
+
+        self.transaction_panel.tx_input.setText(session_id)
 
     @Slot(str)
     def _on_poll_error(self, error_msg: str) -> None:
@@ -598,8 +603,7 @@ class ConcertMainWindow(QMainWindow):
 
         Updates the tracking state and removes previously owned coordinates
         from the own_reserved_coords set so they revert to plain AVAILABLE
-        on the next poll refresh. The server re-reclaims coordinates on
-        reconnect via session_id replay.
+        on the next poll refresh.
 
         Args:
             response: Server response dict.
@@ -724,7 +728,7 @@ class ConcertMainWindow(QMainWindow):
     # ════════════════════════════════════════════════════════════════════════
 
     def _refresh_all(self) -> None:
-        """Perform an immediate refresh (used on connect and session reclaim).
+        """Perform an immediate refresh (used on connect).
 
         Mirrors the TUI pattern: triggers a poll cycle to populate the UI
         synchronously through the normal poll path.

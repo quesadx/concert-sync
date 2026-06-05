@@ -641,6 +641,19 @@ class TransactionalThread(threading.Thread):
             if requesting_user_id:
                 session = self.server.session_manager.get_by_user_id(requesting_user_id)
 
+            user_session_data = None
+            if session is not None and session.state == ReservationStatus.ACTIVE:
+                seat_list = [
+                    {"section": s.name, "row": r, "col": c}
+                    for s, r, c in session.seats
+                ]
+                user_session_data = {
+                    "session_id": session.session_id,
+                    "seats": seat_list,
+                    "ttl_secs": session.ttl_secs,
+                    "last_activity": session.last_activity,
+                }
+
             with self.server.mutex_manager.sections(list(Section)):
                 for section in Section:
                     rows = self.server.seat_matrix.seats[section]
@@ -658,7 +671,7 @@ class TransactionalThread(threading.Thread):
                         serialized_rows.append(serialized_row)
                     seat_map[section.name] = serialized_rows
 
-            return build_success_response(seat_map=seat_map)
+            return build_success_response(seat_map=seat_map, user_session=user_session_data)
 
         except Exception as e:
             self.server.global_log.append("ERROR", f"QUERY_SEAT_MAP failed: {str(e)}")
