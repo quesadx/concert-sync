@@ -159,9 +159,6 @@ class TransactionalThread(threading.Thread):
                 # Add seat to session and record per-seat timestamp
                 session.seats.append((section, row, col))
                 session.record_seat_timestamp(section, row, col)
-                # Refresh all existing seat timestamps so the entire
-                # session gets a unified, globally-fresh TTL
-                session.refresh_all_seat_timestamps()
 
             session_id = session.session_id
             self.server.global_log.append(
@@ -307,9 +304,6 @@ class TransactionalThread(threading.Thread):
                         session.seats.append((section, row, col))
                         session.record_seat_timestamp(section, row, col)
 
-                # Refresh all existing seat timestamps for unified global TTL
-                session.refresh_all_seat_timestamps()
-
             session_id = session.session_id
             self.server.global_log.append(
                 "RESERVE_BATCH",
@@ -431,9 +425,6 @@ class TransactionalThread(threading.Thread):
                     for row, col in sections_and_seats[section]:
                         session.seats.append((section, row, col))
                         session.record_seat_timestamp(section, row, col)
-
-                # Refresh all existing seat timestamps for unified global TTL
-                session.refresh_all_seat_timestamps()
 
             session_id = session.session_id
             self.server.global_log.append(
