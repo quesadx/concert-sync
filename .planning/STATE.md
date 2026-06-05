@@ -16,7 +16,7 @@ progress:
 
 **Last Updated:** 2026-06-04
 
-Last activity: 2026-06-05 - Completed quick task 260604-tz6: Modern cinema theme, server dashboard, multi-client launchers
+Last activity: 2026-06-05 - Completed quick task 260604-wzs: GNOME Adwaita palette migration + frontend code cleanup
 
 Previous: 2026-06-05 - Completed quick task 260604-rml: UI overhaul — numeric login, unified TTL, professional seat matrix
 
@@ -49,6 +49,7 @@ See: .planning/PROJECT.md (updated 2026-06-04)
 | 260604-r7u | Fix per-seat TTL tracking: each reserved seat gets its own independent TTL, expired seats release individually | 2026-06-05 | 1c5db67 | [260604-r7u-when-reserving-multiple-seats-the-ttl-on](./quick/260604-r7u-when-reserving-multiple-seats-the-ttl-on/) |
 | 260604-rml | UI overhaul: numeric login, unified global TTL that resets on every reservation, professional seat matrix visualization | 2026-06-05 | 9da40fe | [260604-rml-overhaul-the-ui-to-make-it-feel-more-lik](./quick/260604-rml-overhaul-the-ui-to-make-it-feel-more-lik/) |
 | 260604-tz6 | Modern cinema theme, server dashboard UI, multi-client launchers | 2026-06-04 | 4e50190 | [260604-tz6-considering-review-by-teacher-md-polish-](./quick/260604-tz6-considering-review-by-teacher-md-polish-/) |
+| 260604-wzs | GNOME Adwaita palette migration + frontend code cleanup | 2026-06-05 | 391d72b | [260604-wzs-make-the-ui-palette-better-go-with-a-gno](./quick/260604-wzs-make-the-ui-palette-better-go-with-a-gno/) |
 
 ## Quick Reference
 
