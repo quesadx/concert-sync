@@ -3,10 +3,12 @@
 Defines the five display states used in the seat map grid and the five event log
 categories, each with their corresponding QColor or hex color value.
 
-Color palette: Modern cinema theme — warm accents with vivid seat state distinction.
+Color palette: GNOME Adwaita-inspired design — blue accent, dark_3/dark_4 backgrounds.
 """
 
 from PySide6.QtGui import QColor
+
+import frontend_pyside6.resources.gnome_palette as palette
 
 # ── Display state identifiers ─────────────────────────────────────────────────
 # Subset is server-side (AVAILABLE, RESERVED, SOLD); others are client-side
@@ -14,32 +16,32 @@ from PySide6.QtGui import QColor
 VISUAL_STATES = ("AVAILABLE", "OWN_RESERVED", "RESERVED", "SOLD", "PENDING")
 
 # ── Seat Map Cell Colors ──────────────────────────────────────────────────────
-# Modern cinema palette with vivid, unmistakable distinction for each state.
-# OWN_RESERVED gets a bright cyan/blue with bold border highlight for instant recognition.
+# GNOME Adwaita palette with unmistakable distinction for each state.
+# Colors sourced from frontend_pyside6.resources.gnome_palette.
 SEAT_COLORS = {
-    "AVAILABLE": QColor("#66bb6a"),    # Soft green — available for selection
-    "OWN_RESERVED": QColor("#29b6f6"),  # Bright cyan/blue — YOUR reservation
-    "RESERVED": QColor("#ffa726"),    # Warm orange — reserved by another user
-    "SOLD": QColor("#ef5350"),        # Crimson red — confirmed / permanently sold
-    "PENDING": QColor("#ab47bc"),     # Purple — locally selected, not yet reserved
+    "AVAILABLE": QColor(palette.SEAT_AVAILABLE),    # Green — available for selection
+    "OWN_RESERVED": QColor(palette.SEAT_OWN),        # Blue — YOUR reservation
+    "RESERVED": QColor(palette.SEAT_RESERVED),      # Orange — reserved by another user
+    "SOLD": QColor(palette.SEAT_SOLD),              # Red — confirmed / permanently sold
+    "PENDING": QColor(palette.SEAT_PENDING),        # Purple — locally selected, not yet reserved
 }
 
 # ── Seat Map Cell Border Styles ───────────────────────────────────────────────
 # CSS-style border declarations for visual distinction (applied in seat_map_widget).
 SEAT_BORDERS = {
-    "AVAILABLE": "1px solid #4a4a6a",
-    "OWN_RESERVED": "2px solid #f5a623",  # Bold gold border for YOUR seats
-    "RESERVED": "1px solid #4a4a6a",
-    "SOLD": "1px solid #4a4a6a",
-    "PENDING": "2px dashed #d4a84b",      # Dashed amber border for pending
+    "AVAILABLE": palette.BORDER_AVAILABLE,
+    "OWN_RESERVED": palette.BORDER_OWN,         # Bold blue border for YOUR seats
+    "RESERVED": palette.BORDER_RESERVED,
+    "SOLD": palette.BORDER_SOLD,
+    "PENDING": palette.BORDER_PENDING,          # Dashed blue border for pending
 }
 
 # ── Event Log Category Colors ─────────────────────────────────────────────────
-# Warm cinema-themed colors for timestamped log entries.
+# GNOME Adwaita colors for timestamped log entries.
 CATEGORY_COLORS = {
-    "LOCAL": "#66bb6a",    # Green — actions initiated by this user
-    "REMOTE": "#ffa726",   # Orange — actions by other users
-    "ERROR": "#ef5350",    # Red — protocol errors, connection failures
-    "SERVER": "#a0a0a0",   # Grey — server lifecycle events
-    "EXPIRE": "#8d6e63",   # Brown — TTL expiration events
+    "LOCAL": palette.CAT_LOCAL,     # Green — actions initiated by this user
+    "REMOTE": palette.CAT_REMOTE,   # Orange — actions by other users
+    "ERROR": palette.CAT_ERROR,     # Red — protocol errors, connection failures
+    "SERVER": palette.CAT_SERVER,   # Grey — server lifecycle events
+    "EXPIRE": palette.CAT_EXPIRE,   # Brown — TTL expiration events
 }
