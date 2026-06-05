@@ -382,21 +382,8 @@ QTabBar::tab:hover {
     background-color: #4a4556;
 }
 
-/* ── Seat Map Tables (no padding, transparent bg so cell colors show) ───── */
-QTableWidget#seat-map-vip,
-QTableWidget#seat-map-preferential,
-QTableWidget#seat-map-general {
-    background-color: transparent;
-    border: none;
-}
-QTableWidget#seat-map-vip::item,
-QTableWidget#seat-map-preferential::item,
-QTableWidget#seat-map-general::item {
-    border: none;
-    padding: 0px;
-}
-
-/* ── Data Tables ──────────────────────────────────────────────────────────── */
+/* ── Data Tables (ActivityDialog, not seat-map — seat-map uses programmatic
+     setBackground() which is overridden by ANY QTableWidget::item QSS rule) ─ */
 QTableWidget {
     background-color: #241f31;
     color: #ffffff;
@@ -404,12 +391,6 @@ QTableWidget {
     border: 1px solid #5e5c64;
     border-radius: 12px;
     font-size: 13px;
-}
-
-QTableWidget::item:selected {
-    background-color: rgba(53, 132, 228, 0.15);
-    color: #3584e4;
-    border-radius: 6px;
 }
 
 QHeaderView::section {
