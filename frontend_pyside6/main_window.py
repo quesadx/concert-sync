@@ -191,9 +191,9 @@ class ConcertMainWindow(QMainWindow):
         switcher_layout.setSpacing(6)
         self._section_buttons: Dict[str, QPushButton] = {}
         section_meta = {
-            "VIP": ("VIP", "#f5a623"),
-            "PREFERENTIAL": ("Preferential", "#d4a84b"),
-            "GENERAL": ("General", "#5a7a9a"),
+            "VIP": ("VIP", "#3584e4"),
+            "PREFERENTIAL": ("Preferential", "#62a0ea"),
+            "GENERAL": ("General", "#9141ac"),
         }
         for sec_name, (label, accent) in section_meta.items():
             btn = QPushButton(label)
