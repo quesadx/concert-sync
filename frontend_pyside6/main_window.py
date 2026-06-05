@@ -82,7 +82,7 @@ class ConcertMainWindow(QMainWindow):
     def __init__(self) -> None:
         """Initialize the main window, state, layout, and polling timer."""
         super().__init__()
-        self.setWindowTitle("ConcertSync — Cinema Seat Reservation")
+        self.setWindowTitle("ConcertSync — Seat Reservation")
         self.setMinimumSize(1024, 768)
         self.resize(1320, 920)
 
@@ -143,8 +143,7 @@ class ConcertMainWindow(QMainWindow):
 
         left_panel.addSpacing(8)
 
-        self.reserve_btn = QPushButton("\u2605 RESERVE SELECTED \u2605")
-        self.reserve_btn.setObjectName("reserve-btn")
+        self.reserve_btn = QPushButton("Reserve Selected")
         left_panel.addWidget(self.reserve_btn)
 
         left_panel.addStretch()
@@ -152,24 +151,6 @@ class ConcertMainWindow(QMainWindow):
 
         # ═══ RIGHT PANEL (~78%) ═══════════════════════════════════════════
         right_panel = QVBoxLayout()
-
-        # ── Cinema-style header ────────────────────────────────────────────
-        self.cinema_header = QLabel("\u2726 SELECT YOUR SEATS \u2726")
-        self.cinema_header.setObjectName("cinema-header")
-        self.cinema_header.setAlignment(Qt.AlignCenter)
-        right_panel.addWidget(self.cinema_header)
-
-        # ── Cinema Screen graphic ─────────────────────────────────────────
-        screen_container = QWidget()
-        screen_container.setObjectName("cinema-screen")
-        screen_container.setFixedHeight(36)
-        screen_layout_inner = QHBoxLayout(screen_container)
-        screen_layout_inner.setContentsMargins(0, 0, 0, 0)
-        screen_label = QLabel("\u25ac\u25ac\u25ac  SCREEN  \u25ac\u25ac\u25ac")
-        screen_label.setAlignment(Qt.AlignCenter)
-        screen_label.setStyleSheet("color: #d4a84b; font-size: 13px; font-weight: bold; letter-spacing: 4px;")
-        screen_layout_inner.addWidget(screen_label)
-        right_panel.addWidget(screen_container)
 
         # ── Color legend (compact) ────────────────────────────────────────
         legend_layout = QHBoxLayout()
@@ -207,15 +188,18 @@ class ConcertMainWindow(QMainWindow):
 
         self.seat_maps: Dict[str, SeatMapWidget] = {}
         section_labels = {
-            "VIP": "VIP \u2014 Orchestra Front",
-            "PREFERENTIAL": "PREFERENTIAL \u2014 Middle Tier",
-            "GENERAL": "GENERAL \u2014 Upper Level",
+            "VIP": "VIP — Orchchestra Front (5\xd710)",
+            "PREFERENTIAL": "PREFERENTIAL — Middle Tier (10\xd715)",
+            "GENERAL": "GENERAL — Upper Level (20\xd720)",
         }
         for section_name in ["VIP", "PREFERENTIAL", "GENERAL"]:
             section = Section[section_name]
             cfg = SECTION_CONFIG[section]
             header = QLabel(section_labels[section_name])
-            header.setObjectName("section-header")
+            header.setStyleSheet(
+                "font-size: 13px; font-weight: bold; color: #9ad4d6; "
+                "padding: 4px 0 2px 0;"
+            )
             scroll_layout.addWidget(header)
             sm = SeatMapWidget(section_name, cfg["rows"], cfg["cols"])
             sm.seat_clicked.connect(self._on_seat_clicked)
@@ -233,13 +217,12 @@ class ConcertMainWindow(QMainWindow):
 
         log_header = QHBoxLayout()
         self.log_toggle_btn = QPushButton("\u25bc Event Log")
-        self.log_toggle_btn.setObjectName("log-toggle-btn")
         self.log_toggle_btn.setCheckable(True)
         self.log_toggle_btn.setChecked(True)
         self.log_toggle_btn.clicked.connect(self._toggle_event_log)
         log_header.addWidget(self.log_toggle_btn)
         log_header.addStretch()
-        clear_log_btn = QPushButton("\u2716 Clear")
+        clear_log_btn = QPushButton("Clear")
         clear_log_btn.clicked.connect(self.event_log.clear)
         log_header.addWidget(clear_log_btn)
         right_panel.addLayout(log_header)
@@ -249,7 +232,7 @@ class ConcertMainWindow(QMainWindow):
 
         # ── Status bar ────────────────────────────────────────────────────
         self.status_bar = QStatusBar()
-        self.status_bar.showMessage("Not connected to server")
+        self.status_bar.showMessage("Not connected")
         self.setStatusBar(self.status_bar)
 
         # ── Signal-slot wiring ────────────────────────────────────────────
@@ -300,9 +283,6 @@ class ConcertMainWindow(QMainWindow):
 
         try:
             self.client.query()  # Test connection
-            self.cinema_header.setText(
-                f"\u2726 {self.user_id} \u2014 SELECT YOUR SEATS \u2726"
-            )
             self.status_bar.showMessage(f"Connected to {host}:{port} as {self.user_id}")
             self._log_event("LOCAL", f"Connected to {host}:{port}")
             self._refresh_all()
@@ -494,9 +474,6 @@ class ConcertMainWindow(QMainWindow):
         # Auto-fill the transaction ID in the transaction panel for one-click confirm/cancel
         self.transaction_panel.tx_input.setText(tx_id)
 
-        self.cinema_header.setText(
-            f"\u2726 {self.user_id} \u2014 {count} SEATS RESERVED \u2726"
-        )
         self._log_event("LOCAL", f"Reserved {count} seats — TX:{tx_id}")
         self.status_bar.showMessage(f"Reserved {count} seats — TX:{tx_id}")
         self._render_all()
@@ -587,7 +564,6 @@ class ConcertMainWindow(QMainWindow):
         if tx_id in self.sessions:
             self.sessions[tx_id].state = "CONFIRMED"
 
-        self.cinema_header.setText(f"\u2726 {self.user_id} \u2014 TX CONFIRMED \u2726")
         self._log_event("LOCAL", f"Confirmed TX:{tx_id}")
         self.status_bar.showMessage(f"Confirmed TX:{tx_id}")
         self._render_all()
@@ -636,7 +612,6 @@ class ConcertMainWindow(QMainWindow):
         if tx_id in self.sessions:
             self.sessions[tx_id].state = "CANCELLED"
 
-        self.cinema_header.setText(f"\u2726 {self.user_id} \u2014 TX CANCELLED \u2726")
         self._log_event("LOCAL", f"Cancelled TX:{tx_id}")
         self.status_bar.showMessage(f"Cancelled TX:{tx_id}")
         self._render_all()
@@ -726,15 +701,7 @@ class ConcertMainWindow(QMainWindow):
     def _update_reserve_button(self) -> None:
         """Update the Reserve button text to show pending selection count."""
         count = len(self.pending_selections)
-        self.reserve_btn.setText(
-            f"\u2605 RESERVE {count} SEAT(S) \u2605" if count else "\u2605 RESERVE SELECTED \u2605"
-        )
-        if self.user_id:
-            self.cinema_header.setText(
-                f"\u2726 {self.user_id} \u2014 {count} SELECTED \u2726"
-                if count
-                else f"\u2726 {self.user_id} \u2014 SELECT YOUR SEATS \u2726"
-            )
+        self.reserve_btn.setText(f"Reserve Selected ({count})")
 
     @staticmethod
     def _build_empty_seat_map() -> Dict[str, List[List[str]]]:

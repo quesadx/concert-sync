@@ -28,22 +28,21 @@ class ConnectionPanel(QWidget):
     def __init__(self) -> None:
         """Initialize connection panel with user ID, host/port, and connect button."""
         super().__init__()
-        self.setObjectName("connection-panel")
         layout = QVBoxLayout(self)
 
         # ── User ID row ──────────────────────────────────────────────────────
         user_layout = QHBoxLayout()
         self.user_id_input = QLineEdit()
-        self.user_id_input.setPlaceholderText("Your Name or ID")
-        user_layout.addWidget(QLabel("Patron:"))
+        self.user_id_input.setPlaceholderText("User ID")
+        user_layout.addWidget(QLabel("User ID:"))
         user_layout.addWidget(self.user_id_input)
         layout.addLayout(user_layout)
 
         # ── Host/Port row ────────────────────────────────────────────────────
         conn_layout = QHBoxLayout()
         self.host_input = QLineEdit("localhost")
-        self.host_input.setPlaceholderText("Server")
-        conn_layout.addWidget(QLabel("Server:"))
+        self.host_input.setPlaceholderText("Host")
+        conn_layout.addWidget(QLabel("Host:"))
         conn_layout.addWidget(self.host_input)
         self.port_input = QLineEdit("9999")
         self.port_input.setPlaceholderText("Port")
@@ -52,7 +51,7 @@ class ConnectionPanel(QWidget):
         layout.addLayout(conn_layout)
 
         # ── Connect button ───────────────────────────────────────────────────
-        self.connect_btn = QPushButton("\u2726 ENTER \u2726")
+        self.connect_btn = QPushButton("Connect")
         self.connect_btn.clicked.connect(self._on_connect)
         layout.addWidget(self.connect_btn)
 

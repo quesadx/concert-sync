@@ -17,7 +17,6 @@ class SectionStatsWidget(QTableWidget):
     def __init__(self) -> None:
         """Initialize a 3-row × 5-column table with section labels."""
         super().__init__(3, 5)  # 3 sections × 5 columns
-        self.setObjectName("section-stats")
         self.setHorizontalHeaderLabels(
             ["Section", "Available", "Reserved", "Sold", "Pending"]
         )

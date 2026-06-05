@@ -15,10 +15,10 @@ VISUAL_STATES = ("AVAILABLE", "OWN_RESERVED", "RESERVED", "SOLD", "PENDING")
 # Mirrors TUI _seat_cell() styles at frontend_tui/app.py lines 1001-1013,
 # adapted to the richer color palette specified in UI-SPEC §Seat Map State Colors.
 SEAT_COLORS = {
-    "AVAILABLE": QColor("#5a9e6f"),  # Warm green — available for selection
-    "OWN_RESERVED": QColor("#d4a84b"),  # Gold — reserved by current user (cinema gold)
-    "RESERVED": QColor("#e8913a"),  # Amber/orange — reserved by another user
-    "SOLD": QColor("#d43a3a"),  # Cinema red — confirmed / permanently sold
+    "AVAILABLE": QColor("#4CAF50"),  # Green — available for selection
+    "OWN_RESERVED": QColor("#2196F3"),  # Blue — reserved by current user
+    "RESERVED": QColor("#FF9800"),  # Orange — reserved by another user
+    "SOLD": QColor("#F44336"),  # Red — confirmed / permanently sold
     "PENDING": QColor("#9C27B0"),  # Purple — locally selected, not yet reserved
 }
 

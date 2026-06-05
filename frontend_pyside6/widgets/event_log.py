@@ -28,7 +28,6 @@ class EventLogWidget(QTextEdit):
     def __init__(self) -> None:
         """Initialize a read-only text edit for event display."""
         super().__init__()
-        self.setObjectName("event-log-panel")
         self.setReadOnly(True)
 
     def append_event(self, category: str, message: str) -> None:
