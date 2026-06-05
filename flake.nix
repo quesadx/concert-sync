@@ -30,6 +30,7 @@
             python314Packages.flake8
             python314Packages.textual
             python314Packages.pyside6
+            uv
 
             nodejs
             pnpm

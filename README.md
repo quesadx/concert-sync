@@ -17,6 +17,7 @@ ConcertSync is a small Python project implementing a TCP-based seat reservation 
 - `src/utils/enums.py`: enums for seat states, sections, and reservation statuses.
 - `src/utils/config.py`: section dimensions, reservation TTL, and server port.
 - `frontend_tui/`: Textual-based terminal frontend (English UI) connected to the same client-server protocol.
+- `frontend_pyside6/`: PySide6 desktop GUI frontend — replaces the TUI with a native Qt window.
 
 ## How It Works
 
@@ -35,10 +36,39 @@ ConcertSync is a small Python project implementing a TCP-based seat reservation 
   - `RESERVATION_TTL`: 300 seconds
   - `SERVER_PORT`: 9999
 
-## Running the Server
+## Setup
+
+Requirements: Python 3.14+ and [uv](https://docs.astral.sh/uv/) (recommended).
 
 ```bash
+# Install dependencies for the PySide6 GUI
+uv sync --group pyside6
+
+# Or install everything (GUI + TUI + dev tools)
+uv sync --group pyside6 --group tui --group dev
+```
+
+**macOS only** — if the Qt app menu doesn't show, set:
+```bash
+export QT_MAC_WANTS_LAYER=1
+```
+
+## Running the PySide6 Desktop GUI (Recommended)
+
+Launches both the server and GUI in one command:
+
+```bash
+python desktop_launcher.py
+```
+
+Or to run the server and GUI separately:
+
+```bash
+# Terminal 1: Start the server
 python main.py
+
+# Terminal 2: Start the PySide6 GUI
+python -m frontend_pyside6
 ```
 
 ## Running the Textual TUI
@@ -64,6 +94,28 @@ bash run_concert_sync.command
 ```
 
 By default it starts the server and then opens the TUI in the same Terminal window. It creates a local `.venv` on first run and installs the small Python dependencies it needs.
+
+## Desktop Launcher (Dual Frontend)
+
+The `desktop_launcher.py` supports both frontends with a `--gui` flag:
+
+```bash
+# PySide6 desktop GUI (default)
+python desktop_launcher.py
+
+# Textual terminal TUI
+python desktop_launcher.py --gui tui
+```
+
+## Running Tests
+
+```bash
+# With uv
+uv run pytest tests/ -x -q
+
+# Or with the run script
+bash scripts/run.sh test
+```
 
 ## Windows Executable
 
