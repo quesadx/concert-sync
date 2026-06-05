@@ -44,17 +44,18 @@ class SeatMapWidget(QTableWidget):
         """
         super().__init__(rows, cols)
         self.section_name = section_name
+        self.setObjectName("seat-map")
         self.setHorizontalHeaderLabels([str(c) for c in range(cols)])
         self.setVerticalHeaderLabels([f"{r:02d}" for r in range(rows)])
         header_font = QFont()
-        header_font.setPointSize(8)
+        header_font.setPointSize(7)
         self.horizontalHeader().setFont(header_font)
         self.verticalHeader().setFont(header_font)
         self.cellClicked.connect(self._on_cell_clicked)
         self.setEditTriggers(QTableWidget.NoEditTriggers)
         self.setSelectionMode(QTableWidget.SingleSelection)
-        self.horizontalHeader().setDefaultSectionSize(30)
-        self.verticalHeader().setDefaultSectionSize(30)
+        self.horizontalHeader().setDefaultSectionSize(28)
+        self.verticalHeader().setDefaultSectionSize(28)
         self._pending_coords: Set[tuple[int, int]] = set()
         self._own_reserved_coords: Set[tuple[int, int]] = set()
 

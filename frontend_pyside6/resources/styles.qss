@@ -1,70 +1,138 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   ConcertSync PySide6 — Dark Theme Stylesheet
-   Adapted from frontend_tui/styles.tcss color palette
-
-   Color variables (from TCSS):
-     $bg-primary: #0f1722;     $accent: #9ad4d6;
-     $accent-warning: #d4a84b; $accent-error: #ff4444;
-     $text-primary: #e0f0ff;
+   ConcertSync PySide6 — Cinema Dark Theme
+   Warm gold accents on deep rich dark background for a theater/movie feel
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ── Main Window ─────────────────────────────────────────────────────────── */
 QMainWindow {
-    background-color: #0f1722;
+    background-color: #0a0e17;
     color: #e0f0ff;
+}
+
+QWidget {
+    background-color: #0a0e17;
+    color: #d8e6f5;
 }
 
 /* ── Push Buttons ────────────────────────────────────────────────────────── */
 QPushButton {
-    background-color: #1a2a3a;
+    background-color: #141b2b;
     color: #e0f0ff;
-    border: 1px solid #3b4a64;
-    padding: 4px 8px;
+    border: 1px solid #d4a84b;
+    padding: 5px 12px;
     border-radius: 4px;
+    font-weight: bold;
 }
 
 QPushButton:hover {
-    background-color: #2a3a4a;
-    border-color: #9ad4d6;
+    background-color: #1e2a40;
+    border-color: #e8c269;
+    color: #e8c269;
 }
 
 QPushButton:pressed {
-    background-color: #3a4a5a;
+    background-color: #2a3a55;
+}
+
+QPushButton:disabled {
+    border-color: #3b4a64;
+    color: #5a6a7a;
+}
+
+/* Reserve button - special cinema gold */
+QPushButton#reserve-btn {
+    background-color: #d4a84b;
+    color: #0a0e17;
+    border: 1px solid #e8c269;
+    font-size: 13px;
+    padding: 8px 16px;
+    border-radius: 6px;
+}
+
+QPushButton#reserve-btn:hover {
+    background-color: #e8c269;
+    border-color: #f0d48a;
+}
+
+QPushButton#reserve-btn:disabled {
+    background-color: #3a2a1a;
+    color: #6a5a4a;
+    border-color: #5a4a3a;
 }
 
 /* ── Text Inputs ─────────────────────────────────────────────────────────── */
 QLineEdit {
     background-color: #10171f;
     color: #e0f0ff;
-    border: 1px solid #3b4a64;
-    padding: 3px 6px;
+    border: 1px solid #2a3a4a;
+    padding: 4px 8px;
     border-radius: 3px;
+}
+
+QLineEdit:focus {
+    border-color: #d4a84b;
 }
 
 /* ── Table Widgets ───────────────────────────────────────────────────────── */
 QTableWidget {
     background-color: #0b1220;
     color: #e0f0ff;
-    gridline-color: #2a3a4a;
-    border: 1px solid #4f6f8f;
+    gridline-color: #1a2a3a;
+    border: 1px solid #2a3a4a;
+    border-radius: 3px;
 }
 
 QTableWidget::item:selected {
-    background-color: #2d6a7e;
+    background-color: #2a3a55;
+}
+
+QTableWidget::item:hover {
+    background-color: #1a2a3a;
 }
 
 QHeaderView::section {
-    background-color: #1a2a3a;
-    color: #9ad4d6;
-    border: 1px solid #3b4a64;
-    padding: 2px;
+    background-color: #141b2b;
+    color: #d4a84b;
+    border: 1px solid #2a3a4a;
+    padding: 3px 6px;
+    font-weight: bold;
+}
+
+/* ── Seat Map Table — cinema-style rounded cells ─────────────────────────── */
+QTableWidget#seat-map {
+    border: 1px solid #2a3a4a;
+    border-radius: 4px;
+    background-color: #0a0e17;
+}
+
+QTableWidget#seat-map::item {
+    font-size: 9px;
+    border: 1px solid #1a2a3a;
+    border-radius: 2px;
+    padding: 0px;
+    margin: 1px;
+}
+
+QTableWidget#seat-map::item:hover {
+    border-color: #d4a84b;
+}
+
+/* ── Seat Map Header labels (row/col) ──────────────────────────────────── */
+QTableWidget#seat-map QHeaderView::section {
+    background-color: #0a0e17;
+    color: #d4a84b;
+    border: none;
+    font-size: 7px;
+    padding: 1px;
 }
 
 /* ── Text Edit / Event Log ───────────────────────────────────────────────── */
-QTextEdit {
+QTextEdit#event-log-panel {
     background-color: #0b1220;
     color: #d8e6f5;
-    border: 1px solid #4f6f8f;
+    border: 1px solid #2a3a4a;
+    border-radius: 3px;
+    font-size: 10px;
 }
 
 /* ── Labels ──────────────────────────────────────────────────────────────── */
@@ -72,35 +140,117 @@ QLabel {
     color: #d8e6f5;
 }
 
+QLabel#cinema-header {
+    color: #d4a84b;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+QLabel#section-header {
+    color: #d4a84b;
+    font-size: 11px;
+    font-weight: bold;
+}
+
 /* ── Legend Swatches ──────────────────────────────────────────────────────── */
 QLabel#seat-legend-swatch {
-    min-width: 16px;
-    max-width: 16px;
-    min-height: 12px;
-    max-height: 12px;
+    min-width: 14px;
+    max-width: 14px;
+    min-height: 10px;
+    max-height: 10px;
     border: 1px solid #3b4a64;
     border-radius: 2px;
 }
 
-/* ── Seat Map Table Cell Text (TTL overlay) ──────────────────────────────── */
-QTableWidget::item {
-    font-size: 9px;
+/* ── Status Bar ──────────────────────────────────────────────────────────── */
+QStatusBar {
+    background-color: #0a0e17;
+    color: #d4a84b;
+    border-top: 1px solid #1a2a3a;
+    font-size: 10px;
 }
 
 /* ── Message Box (Close Guard Dialog) ─────────────────────────────────────── */
 QMessageBox {
-    background-color: #0f1722;
+    background-color: #0a0e17;
     color: #e0f0ff;
 }
+
 QMessageBox QLabel {
     color: #e0f0ff;
 }
+
 QMessageBox QPushButton {
-    min-width: 60px;
+    min-width: 70px;
+    border-color: #d4a84b;
 }
 
-/* ── Status Bar ──────────────────────────────────────────────────────────── */
-QStatusBar {
-    background-color: #0f1722;
-    color: #9fb3c8;
+/* ── Scroll Area ─────────────────────────────────────────────────────────── */
+QScrollArea {
+    border: none;
+    background-color: transparent;
+}
+
+QScrollBar:vertical {
+    background-color: #0a0e17;
+    width: 8px;
+    border: none;
+}
+
+QScrollBar::handle:vertical {
+    background-color: #2a3a4a;
+    border-radius: 4px;
+    min-height: 30px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background-color: #d4a84b;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+/* ── Cinema Screen Container ─────────────────────────────────────────────── */
+QWidget#cinema-screen {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #0a0e17, stop:0.5 #1a1a2e, stop:1 #0a0e17);
+    border: 1px solid #d4a84b;
+    border-radius: 4px;
+}
+
+/* ── Connection Panel ──────────────────────────────────────────────────── */
+QWidget#connection-panel QLabel {
+    font-size: 10px;
+}
+
+/* ── Section Stats ──────────────────────────────────────────────────────── */
+QWidget#section-stats QHeaderView::section {
+    background-color: #141b2b;
+    color: #d4a84b;
+    font-size: 9px;
+    padding: 2px 4px;
+}
+
+/* ── Transaction Panel ──────────────────────────────────────────────────── */
+QWidget#transaction-panel QPushButton {
+    border-color: #d4a84b;
+}
+
+QWidget#transaction-panel QPushButton:hover {
+    border-color: #e8c269;
+    color: #e8c269;
+}
+
+/* ── Event Log Toggle Button ───────────────────────────────────────────── */
+QPushButton#log-toggle-btn {
+    border-color: #2a3a4a;
+    color: #a0b0c0;
+    font-size: 9px;
+    padding: 3px 8px;
+}
+
+QPushButton#log-toggle-btn:hover {
+    border-color: #d4a84b;
+    color: #d4a84b;
 }

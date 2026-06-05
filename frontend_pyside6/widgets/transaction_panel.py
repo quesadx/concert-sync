@@ -34,6 +34,7 @@ class TransactionPanel(QWidget):
     def __init__(self) -> None:
         """Initialize the transaction panel with all controls."""
         super().__init__()
+        self.setObjectName("transaction-panel")
         layout = QVBoxLayout(self)
 
         # ── Transaction ID input row ─────────────────────────────────────────
@@ -46,12 +47,12 @@ class TransactionPanel(QWidget):
 
         # ── Action buttons ───────────────────────────────────────────────────
         btn_layout = QHBoxLayout()
-        self.confirm_btn = QPushButton("Confirm")
+        self.confirm_btn = QPushButton("\u2713 CONFIRM")
         self.confirm_btn.clicked.connect(
             lambda: self.confirm_requested.emit(self.tx_input.text().strip())
         )
         btn_layout.addWidget(self.confirm_btn)
-        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn = QPushButton("\u2715 CANCEL")
         self.cancel_btn.clicked.connect(
             lambda: self.cancel_requested.emit(self.tx_input.text().strip())
         )
