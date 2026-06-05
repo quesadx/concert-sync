@@ -74,8 +74,11 @@ class TestSessionPersistence:
         session = server.session_manager.get_by_session_id(tx_id)
         assert session is not None
 
-        # Artificially expire the session — age it then sweep via MonitorThread
-        session.last_activity = time.time() - (RESERVATION_TTL + 10)
+        # Artificially expire the session — age all seats and last_activity
+        expired_time = time.time() - (RESERVATION_TTL + 10)
+        session.last_activity = expired_time
+        for seat_key in list(session.seat_timestamps.keys()):
+            session.seat_timestamps[seat_key] = expired_time
         # Force sweep to actually change state to non-ACTIVE
         server.monitor_thread.expire_session(session)
 

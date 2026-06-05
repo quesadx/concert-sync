@@ -83,6 +83,7 @@ class SqliteStore:
             section TEXT NOT NULL,
             row INTEGER NOT NULL,
             col INTEGER NOT NULL,
+            reserved_at REAL NOT NULL DEFAULT 0.0,
             PRIMARY KEY (user_id, section, row, col),
             FOREIGN KEY (user_id) REFERENCES sessions(user_id) ON DELETE CASCADE
         );
@@ -98,6 +99,13 @@ class SqliteStore:
                 conn = sqlite3.connect(str(self.db_path))
                 conn.execute("PRAGMA journal_mode=WAL")
                 conn.executescript(tables_sql)
+                try:
+                    conn.execute(
+                        "ALTER TABLE session_seats ADD COLUMN reserved_at REAL "
+                        "NOT NULL DEFAULT 0.0"
+                    )
+                except sqlite3.OperationalError:
+                    pass
             except sqlite3.Error as exc:
                 print(
                     f"[SqliteStore] Failed to create tables: {exc}",
@@ -239,10 +247,14 @@ class SqliteStore:
                         (user_id,),
                     )
                     for section, row, col in session.seats:
+                        ts = session.seat_timestamps.get(
+                            (section, row, col), session.last_activity
+                        )
                         conn.execute(
                             "INSERT OR REPLACE INTO session_seats "
-                            "(user_id, section, row, col) VALUES (?, ?, ?, ?)",
-                            (user_id, section.name, row, col),
+                            "(user_id, section, row, col, reserved_at) "
+                            "VALUES (?, ?, ?, ?, ?)",
+                            (user_id, section.name, row, col, ts),
                         )
 
                 conn.execute("COMMIT")
@@ -281,7 +293,7 @@ class SqliteStore:
                 result: List[dict] = []
                 for srow in session_rows:
                     seat_rows = conn.execute(
-                        "SELECT section, row, col FROM session_seats "
+                        "SELECT section, row, col, reserved_at FROM session_seats "
                         "WHERE user_id = ?",
                         (srow["user_id"],),
                     ).fetchall()
@@ -289,6 +301,11 @@ class SqliteStore:
                         (Section[sr["section"]], sr["row"], sr["col"])
                         for sr in seat_rows
                     ]
+                    seat_timestamps: Dict[Tuple[Section, int, int], float] = {}
+                    for sr in seat_rows:
+                        seat_timestamps[
+                            (Section[sr["section"]], sr["row"], sr["col"])
+                        ] = sr["reserved_at"] if sr["reserved_at"] > 0 else srow["last_activity"]
                     result.append(
                         {
                             "user_id": srow["user_id"],
@@ -297,6 +314,7 @@ class SqliteStore:
                             "last_activity": srow["last_activity"],
                             "ttl_secs": srow["ttl_secs"],
                             "seats": seats,
+                            "seat_timestamps": seat_timestamps,
                         }
                     )
                 return result

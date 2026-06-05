@@ -136,6 +136,7 @@ class TransactionalThread(threading.Thread):
             session = self.server.session_manager.get_or_create(user_id)
 
             with self.server.mutex_manager.table_and_sections([section]):
+                session = self.server.session_manager.get_or_create(user_id)
                 seats = self.server.seat_matrix.seats[section]
 
                 # Validate seat state
@@ -155,9 +156,9 @@ class TransactionalThread(threading.Thread):
                     seats[row][col] = SeatState.AVAILABLE
                     return failure_no_capacity(section_str)
 
-                # Add seat to session and reset TTL
+                # Add seat to session and record per-seat timestamp
                 session.seats.append((section, row, col))
-                session.reset_ttl()
+                session.record_seat_timestamp(section, row, col)
 
             session_id = session.session_id
             self.server.global_log.append(
@@ -246,6 +247,8 @@ class TransactionalThread(threading.Thread):
             acquired_semaphores = defaultdict(int)
 
             with self.server.mutex_manager.table_and_sections(ordered_sections):
+                session = self.server.session_manager.get_or_create(user_id)
+
                 # Validate seat availability first (no state changes yet)
                 for section in ordered_sections:
                     for row, col in sections_and_seats[section]:
@@ -295,11 +298,11 @@ class TransactionalThread(threading.Thread):
 
                         acquired_semaphores[section] += 1
 
-                # Add all seats to session and reset TTL once
+                # Add all seats to session with per-seat timestamps
                 for section in ordered_sections:
                     for row, col in sections_and_seats[section]:
                         session.seats.append((section, row, col))
-                session.reset_ttl()
+                        session.record_seat_timestamp(section, row, col)
 
             session_id = session.session_id
             self.server.global_log.append(
@@ -372,6 +375,8 @@ class TransactionalThread(threading.Thread):
             acquired_semaphores = defaultdict(int)
 
             with self.server.mutex_manager.table_and_sections(ordered_sections):
+                session = self.server.session_manager.get_or_create(user_id)
+
                 for section in ordered_sections:
                     for row, col in sections_and_seats[section]:
                         current_state = self.server.seat_matrix.seats[section][row][col]
@@ -419,7 +424,7 @@ class TransactionalThread(threading.Thread):
                 for section in ordered_sections:
                     for row, col in sections_and_seats[section]:
                         session.seats.append((section, row, col))
-                session.reset_ttl()
+                        session.record_seat_timestamp(section, row, col)
 
             session_id = session.session_id
             self.server.global_log.append(

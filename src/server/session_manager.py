@@ -13,6 +13,7 @@ class UserSession:
     user_id: str
     session_id: str
     seats: List[Tuple[Section, int, int]] = field(default_factory=list)
+    seat_timestamps: Dict[Tuple[Section, int, int], float] = field(default_factory=dict)
     last_activity: float = field(default_factory=time.time)
     ttl_secs: int = RESERVATION_TTL
     state: ReservationStatus = ReservationStatus.ACTIVE
@@ -21,9 +22,45 @@ class UserSession:
     def is_expired(self) -> bool:
         if self.state != ReservationStatus.ACTIVE:
             return True
-        return time.time() - self.last_activity > self.ttl_secs
+        if not self.seats:
+            return True
+        now = time.time()
+        for seat_key in self.seats:
+            ts = self.seat_timestamps.get(seat_key, self.last_activity)
+            if now - ts <= self.ttl_secs:
+                return False
+        return True
+
+    @property
+    def has_expired_seats(self) -> bool:
+        """Returns True if at least one seat in the session has expired."""
+        if self.state != ReservationStatus.ACTIVE:
+            return False
+        now = time.time()
+        for seat_key in self.seats:
+            ts = self.seat_timestamps.get(seat_key, self.last_activity)
+            if now - ts > self.ttl_secs:
+                return True
+        return False
+
+    def get_expired_seats(self):
+        """Return list of (section, row, col) tuples for seats whose TTL has passed."""
+        if self.state != ReservationStatus.ACTIVE:
+            return []
+        expired = []
+        now = time.time()
+        for seat_key in self.seats:
+            ts = self.seat_timestamps.get(seat_key, self.last_activity)
+            if now - ts > self.ttl_secs:
+                expired.append(seat_key)
+        return expired
 
     def reset_ttl(self) -> None:
+        self.last_activity = time.time()
+
+    def record_seat_timestamp(self, section: Section, row: int, col: int) -> None:
+        """Record the reservation timestamp for a single seat."""
+        self.seat_timestamps[(section, row, col)] = time.time()
         self.last_activity = time.time()
 
 
@@ -55,7 +92,7 @@ class SessionManager:
             return [
                 s
                 for s in self._sessions.values()
-                if s.state == ReservationStatus.ACTIVE and s.is_expired
+                if s.state == ReservationStatus.ACTIVE and s.has_expired_seats
             ]
 
     def get_all_active(self) -> List[UserSession]:
