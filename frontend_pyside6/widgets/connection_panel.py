@@ -1,8 +1,7 @@
 """Connection panel widget for host/port input and session management.
 
 Provides UI controls for connecting to the ConcertSync server with
-user identity. The user ID is collected via a mandatory numeric login
-dialog on startup. Active sessions are auto-loaded on connect via the
+user identity. Active sessions are auto-loaded on connect via the
 QUERY_SEAT_MAP response — no manual session claiming needed.
 """
 
@@ -18,39 +17,28 @@ from PySide6.QtWidgets import (
 
 
 class ConnectionPanel(QWidget):
-    """Connection controls with user display, host/port inputs, and connect.
+    """Connection controls with user ID, host, and port inputs.
 
     Emits:
         connect_requested(host, port): When user clicks Connect.
-        change_user_requested(): When user clicks Change User.
     """
 
     connect_requested = Signal(str, int)  # host, port
-    change_user_requested = Signal()  # request re-login
 
     def __init__(self) -> None:
-        """Initialize connection panel with user label, host/port, and buttons."""
+        """Initialize connection panel with user ID, host/port, and connect button."""
         super().__init__()
         layout = QVBoxLayout(self)
 
-        # ── User identity row ───────────────────────────────────────────────
+        # ── User ID row ──────────────────────────────────────────────────────
         user_layout = QHBoxLayout()
-        user_layout.addWidget(QLabel("User:"))
-
-        self.user_label = QLabel("Not logged in")
-        self.user_label.setStyleSheet(
-            "font-weight: bold; color: #9ad4d6; padding: 2px 6px;"
-            "background-color: #10171f; border-radius: 3px;"
-        )
-        user_layout.addWidget(self.user_label)
-        user_layout.addStretch()
-
-        self.change_user_btn = QPushButton("Change User")
-        self.change_user_btn.clicked.connect(lambda: self.change_user_requested.emit())
-        user_layout.addWidget(self.change_user_btn)
+        self.user_id_input = QLineEdit()
+        self.user_id_input.setPlaceholderText("User ID")
+        user_layout.addWidget(QLabel("User ID:"))
+        user_layout.addWidget(self.user_id_input)
         layout.addLayout(user_layout)
 
-        # ── Host/Port row ───────────────────────────────────────────────────
+        # ── Host/Port row ────────────────────────────────────────────────────
         conn_layout = QHBoxLayout()
         self.host_input = QLineEdit("localhost")
         self.host_input.setPlaceholderText("Host")
@@ -62,18 +50,10 @@ class ConnectionPanel(QWidget):
         conn_layout.addWidget(self.port_input)
         layout.addLayout(conn_layout)
 
-        # ── Connect button ──────────────────────────────────────────────────
+        # ── Connect button ───────────────────────────────────────────────────
         self.connect_btn = QPushButton("Connect")
         self.connect_btn.clicked.connect(self._on_connect)
         layout.addWidget(self.connect_btn)
-
-    def set_user_id(self, user_id: str) -> None:
-        """Update the displayed user ID label.
-
-        Args:
-            user_id: The user's numeric ID string.
-        """
-        self.user_label.setText(user_id)
 
     def _on_connect(self) -> None:
         """Handle Connect button click.

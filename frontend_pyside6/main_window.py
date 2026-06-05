@@ -17,6 +17,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Set
+from uuid import uuid4
 
 from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QKeyEvent
@@ -43,7 +44,6 @@ from frontend_pyside6.workers.network_worker import (
 )
 from frontend_pyside6.widgets.connection_panel import ConnectionPanel
 from frontend_pyside6.widgets.event_log import EventLogWidget, LogTailer
-from frontend_pyside6.widgets.login_dialog import LoginDialog
 from frontend_pyside6.widgets.seat_map_widget import SeatMapWidget
 from frontend_pyside6.widgets.section_stats import SectionStatsWidget
 from frontend_pyside6.widgets.transaction_panel import TransactionPanel
@@ -76,17 +76,11 @@ class ConcertMainWindow(QMainWindow):
         server_disconnected: Whether the server notified a disconnect.
     """
 
-    _refresh_complete = Signal(
-        dict, dict, object
-    )  # sections, seat_map_payload, user_session
+    _refresh_complete = Signal(dict, dict, object)  # sections, seat_map_payload, user_session
     _refresh_failed = Signal(str)  # error message
 
     def __init__(self) -> None:
-        """Initialize the main window, state, layout, and polling timer.
-
-        Shows a mandatory numeric login dialog before building the UI.
-        Login cannot be skipped — the user must provide a valid numeric ID.
-        """
+        """Initialize the main window, state, layout, and polling timer."""
         super().__init__()
         self.setWindowTitle("ConcertSync — Seat Reservation")
         self.setMinimumSize(1024, 768)
@@ -118,18 +112,8 @@ class ConcertMainWindow(QMainWindow):
         # ── Log tailer (mirrors TUI LogTailer init) ───────────────────────
         self.log_tailer = LogTailer(Path("logs/system.log"))
 
-        # ── Mandatory login dialog ───────────────────────────────────────
-        self._show_login()
-        if self.user_id is None:
-            # User somehow bypassed login — should not happen, but guard
-            self.user_id = "0"
-
-        # ── Build UI after login is confirmed ─────────────────────────────
         self._setup_ui()
         self._setup_polling()
-
-        # ── Display user ID in connection panel ───────────────────────────
-        self.connection_panel.set_user_id(self.user_id)
 
     # ════════════════════════════════════════════════════════════════════════
     # Layout
@@ -253,7 +237,6 @@ class ConcertMainWindow(QMainWindow):
 
         # ── Signal-slot wiring ────────────────────────────────────────────
         self.connection_panel.connect_requested.connect(self._connect_client)
-        self.connection_panel.change_user_requested.connect(self._on_change_user)
         self.transaction_panel.confirm_requested.connect(self._on_confirm)
         self.transaction_panel.cancel_requested.connect(self._on_cancel)
         self.reserve_btn.clicked.connect(self._on_reserve_selected)
@@ -267,50 +250,6 @@ class ConcertMainWindow(QMainWindow):
         )
 
     # ════════════════════════════════════════════════════════════════════════
-    # Login
-    # ════════════════════════════════════════════════════════════════════════
-
-    def _show_login(self) -> None:
-        """Show the numeric login dialog and store the user ID.
-
-        Blocks until a valid numeric ID is entered. Login is mandatory —
-        the dialog cannot be dismissed without providing valid input.
-        Sets self.user_id on success, leaves it as None if somehow rejected.
-        """
-        dialog = LoginDialog(self)
-        if dialog.exec() == LoginDialog.Accepted:
-            self.user_id = dialog.user_id
-        # If rejected (should not happen since close button is hidden),
-        # user_id stays None and the caller handles it.
-
-    @Slot()
-    def _on_change_user(self) -> None:
-        """Handle Change User button: disconnect, re-login, and reset state.
-
-        Disconnects from the current server, shows the login dialog for a
-        new numeric user ID, clears all session state, and updates the UI.
-        """
-        # Disconnect current client
-        self.client = None
-        self.connected_host = "localhost"
-        self.connected_port = 9999
-        self.status_bar.showMessage("Not connected")
-
-        # Clear all state from previous user
-        self.own_reserved_coords.clear()
-        self.sessions.clear()
-        self.pending_selections.clear()
-
-        # Show login dialog for re-authentication
-        self._show_login()
-        if self.user_id is None:
-            self.user_id = "0"
-
-        # Update display
-        self.connection_panel.set_user_id(self.user_id)
-        self._render_all()
-
-    # ════════════════════════════════════════════════════════════════════════
     # Connection
     # ════════════════════════════════════════════════════════════════════════
 
@@ -318,21 +257,25 @@ class ConcertMainWindow(QMainWindow):
     def _connect_client(self, host: str = "localhost", port: int = 9999) -> None:
         """Connect to the ConcertSync server and perform initial query.
 
-        Uses the user_id set during mandatory login flow. The server
+        Reads user_id from the ConnectionPanel input field.
+        Auto-generates a UUID-based user_id if the input is empty. The server
         requires a non-empty user_id for OWN_RESERVED seat detection.
 
         Args:
             host: Server hostname or IP address.
             port: Server TCP port.
         """
-        if self.user_id is None:
-            self.status_bar.showMessage("Login required before connecting")
-            return
+        # ── Read user_id, auto-generate if empty ─────────────────────────
+        user_id = self.connection_panel.user_id_input.text().strip()
+        if not user_id:
+            user_id = f"user_{uuid4().hex[:8]}"
 
         # Clear state from any previous user session to prevent stale OWN_RESERVED highlights
         self.own_reserved_coords.clear()
         self.sessions.clear()
         self.pending_selections.clear()
+
+        self.user_id = user_id
 
         self.client = ConcertClient(user_id=self.user_id, host=host, port=port)
         self.connected_host = host
@@ -372,9 +315,7 @@ class ConcertMainWindow(QMainWindow):
         run_worker(worker)
 
     @Slot(dict, dict, object)
-    def _on_poll_success(
-        self, sections: dict, seat_map_payload: dict, user_session: object
-    ) -> None:
+    def _on_poll_success(self, sections: dict, seat_map_payload: dict, user_session: object) -> None:
         """Handle successful poll: update snapshots, parse user session, render all widgets.
 
         Args:
@@ -427,10 +368,7 @@ class ConcertMainWindow(QMainWindow):
             session.seats = seat_list
             self.sessions[session_id] = session
             self.connection_panel.set_session_id(session_id)
-            self._log_event(
-                "LOCAL",
-                f"Auto-loaded session {session_id} with {len(seat_list)} seat(s)",
-            )
+            self._log_event("LOCAL", f"Auto-loaded session {session_id} with {len(seat_list)} seat(s)")
 
         self.transaction_panel.tx_input.setText(session_id)
 
