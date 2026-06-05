@@ -10,7 +10,7 @@ def _run_tui():
 
 
 def _run_pyside6():
-    """New PySide6 GUI mode."""
+    """New PySide6 GUI client mode."""
     from PySide6.QtWidgets import QApplication
     from frontend_pyside6.main_window import ConcertMainWindow
     app = QApplication(sys.argv)
@@ -19,21 +19,68 @@ def _run_pyside6():
     sys.exit(app.exec())
 
 
-def main(gui: str = "pyside6"):
-    """Start ConcertSync server + user interface.
+def _run_dashboard():
+    """Server monitoring dashboard mode."""
+    from PySide6.QtWidgets import QApplication
+    from frontend_pyside6.server_dashboard import ServerDashboardWindow
+    app = QApplication(sys.argv)
+    window = ServerDashboardWindow()
+    window.show()
+    sys.exit(app.exec())
+
+
+def _run_server_only():
+    """Server-only mode (no UI)."""
+    server = ConcertServer(port=9999)
+    print("Server running on port 9999. Press Ctrl+C to stop.")
+    server.start()
+    try:
+        while True:
+            import time
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.stop()
+        print("Server stopped.")
+
+
+def main(mode: str = "both"):
+    """Start ConcertSync in the specified mode.
 
     Args:
-        gui: 'tui' for Textual terminal UI, 'pyside6' for PySide6 desktop GUI (default).
+        mode: 'both' for server + client (default), 'server' for server only,
+              'client' for PySide6 client only, 'dashboard' for server dashboard only,
+              'tui' for Textual TUI with server.
     """
-    server = ConcertServer(port=9999)
-    print(f"Starting ConcertSync on port 9999 ({gui.upper()} mode)")
-    server.start()
+    if mode == "server":
+        _run_server_only()
+        return
 
-    try:
-        if gui == "tui":
+    if mode == "client":
+        _run_pyside6()
+        return
+
+    if mode == "dashboard":
+        _run_dashboard()
+        return
+
+    if mode == "tui":
+        server = ConcertServer(port=9999)
+        print(f"Starting ConcertSync on port 9999 (TUI mode)")
+        server.start()
+        try:
             _run_tui()
-        else:
-            _run_pyside6()
+        finally:
+            server.stop()
+        return
+
+    # Default: both (server + PySide6 client)
+    server = ConcertServer(port=9999)
+    print(f"Starting ConcertSync on port 9999 (BOTH mode)")
+    server.start()
+    try:
+        _run_pyside6()
     finally:
         server.stop()
 
@@ -41,7 +88,22 @@ def main(gui: str = "pyside6"):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="ConcertSync Desktop Launcher")
-    parser.add_argument("--gui", choices=["tui", "pyside6"], default="pyside6",
-                        help="GUI frontend to use")
+    parser.add_argument(
+        "--mode",
+        choices=["both", "server", "client", "dashboard", "tui"],
+        default="both",
+        help="Launch mode: both (server+client), server, client, dashboard, or tui",
+    )
+    parser.add_argument(
+        "--gui",
+        choices=["tui", "pyside6"],
+        default="pyside6",
+        help="GUI frontend to use (legacy, use --mode instead)",
+    )
     args = parser.parse_args()
-    main(gui=args.gui)
+
+    # Legacy --gui support: if --gui tui is passed, use tui mode
+    if args.gui == "tui":
+        main(mode="tui")
+    else:
+        main(mode=args.mode)
