@@ -55,23 +55,54 @@ export QT_MAC_WANTS_LAYER=1
 
 ## Running the PySide6 Desktop GUI (Recommended)
 
-Launches both the server and GUI in one command:
+### Option 1: Launch both server and GUI together
+
+The easiest way to start is with the desktop launcher, which runs the server and opens the GUI in a single command:
 
 ```bash
 python desktop_launcher.py
 ```
 
-Or to run the server and GUI separately:
+### Option 2: Run server and GUI separately
 
+Use this when you want to connect multiple clients to the same server, or run the server on a different machine.
+
+**Terminal 1 — Start the server:**
 ```bash
-# Terminal 1: Start the server
 python main.py
+```
+The server listens on TCP port `9999`. Keep this terminal open.
 
-# Terminal 2: Start the PySide6 GUI
+**Terminal 2 — Start the PySide6 GUI client:**
+```bash
 python -m frontend_pyside6
 ```
 
-## Running the Textual TUI
+**Optional — Start the server monitoring dashboard:**
+```bash
+python -m frontend_pyside6 --mode dashboard
+```
+
+### Available `desktop_launcher.py` modes
+
+```bash
+# Server + PySide6 GUI together (default)
+python desktop_launcher.py
+
+# Server only
+python desktop_launcher.py --mode server
+
+# PySide6 GUI client only (connects to an existing server)
+python desktop_launcher.py --mode client
+
+# Server monitoring dashboard only
+python desktop_launcher.py --mode dashboard
+
+# Server + Textual TUI (legacy)
+python desktop_launcher.py --mode tui
+```
+
+## Running the Textual TUI (Legacy)
 
 ```bash
 nix develop -c python -m frontend_tui
@@ -94,18 +125,6 @@ bash run_concert_sync.command
 ```
 
 By default it starts the server and then opens the TUI in the same Terminal window. It creates a local `.venv` on first run and installs the small Python dependencies it needs.
-
-## Desktop Launcher (Dual Frontend)
-
-The `desktop_launcher.py` supports both frontends with a `--gui` flag:
-
-```bash
-# PySide6 desktop GUI (default)
-python desktop_launcher.py
-
-# Textual terminal TUI
-python desktop_launcher.py --gui tui
-```
 
 ## Running Tests
 
