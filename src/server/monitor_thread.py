@@ -64,6 +64,9 @@ class MonitorThread(threading.Thread):
                 if count > 0:
                     self.server.semaphore_mgr.release_multiple(section, count)
 
+        self.server.store.save_all_seats(self.server.seat_matrix)
+        self.server.store.delete_session(session.user_id)
+
         total = sum(released_counts.values())
         self.server.global_log.append(
             "EXPIRE",

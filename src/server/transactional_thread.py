@@ -165,6 +165,8 @@ class TransactionalThread(threading.Thread):
                 f"Session:{session_id} Section:{section.name} Seat:[{row},{col}]",
             )
 
+            self.server.store.save_all_seats(self.server.seat_matrix)
+
             return build_success_response(
                 transaction_id=session_id, ttl=RESERVATION_TTL
             )
@@ -305,6 +307,8 @@ class TransactionalThread(threading.Thread):
                 f"Session:{session_id} Seats:{seat_objects}",
             )
 
+            self.server.store.save_all_seats(self.server.seat_matrix)
+
             response = build_success_response(
                 transaction_id=session_id,
                 ttl=RESERVATION_TTL,
@@ -423,6 +427,8 @@ class TransactionalThread(threading.Thread):
                 f"Session:{session_id} Seats:{seat_objects}",
             )
 
+            self.server.store.save_all_seats(self.server.seat_matrix)
+
             return build_success_response(
                 transaction_id=session_id,
                 ttl=RESERVATION_TTL,
@@ -503,6 +509,10 @@ class TransactionalThread(threading.Thread):
                 "CONFIRM",
                 f"Session:{session_id} User:{session.user_id} confirmed",
             )
+
+            self.server.store.save_all_seats(self.server.seat_matrix)
+            self.server.store.delete_session(session.user_id)
+
             return build_success_response(transaction_id=session_id)
 
         except Exception as e:
@@ -575,6 +585,10 @@ class TransactionalThread(threading.Thread):
                 "CANCEL",
                 f"Session:{session_id} User:{session.user_id} cancelled sections_released:{len(released_counts)}",
             )
+
+            self.server.store.save_all_seats(self.server.seat_matrix)
+            self.server.store.delete_session(session.user_id)
+
             return build_success_response(transaction_id=session_id)
 
         except Exception as e:
