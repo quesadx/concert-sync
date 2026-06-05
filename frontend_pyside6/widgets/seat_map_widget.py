@@ -34,27 +34,40 @@ class SeatMapWidget(QTableWidget):
 
     seat_clicked = Signal(str, int, int, str)  # section, row, col, state
 
-    def __init__(self, section_name: str, rows: int, cols: int) -> None:
+    def __init__(self, section_name: str, rows: int, cols: int, cell_size: int = 26) -> None:
         """Initialize the seat map grid.
 
         Args:
             section_name: Section identifier (VIP, PREFERENTIAL, or GENERAL).
             rows: Number of rows in this section's grid.
             cols: Number of columns in this section's grid.
+            cell_size: Pixel size for each seat cell (default 26).
         """
         super().__init__(rows, cols)
         self.section_name = section_name
+        self.setObjectName(f"seat-map-{section_name.lower()}")
         self.setHorizontalHeaderLabels([str(c) for c in range(cols)])
         self.setVerticalHeaderLabels([f"{r:02d}" for r in range(rows)])
         header_font = QFont()
-        header_font.setPointSize(8)
+        header_font.setPointSize(7)
         self.horizontalHeader().setFont(header_font)
         self.verticalHeader().setFont(header_font)
         self.cellClicked.connect(self._on_cell_clicked)
         self.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.setSelectionMode(QTableWidget.SingleSelection)
-        self.horizontalHeader().setDefaultSectionSize(22)
-        self.verticalHeader().setDefaultSectionSize(22)
+        self.setSelectionMode(QTableWidget.NoSelection)
+        self.setFocusPolicy(Qt.NoFocus)
+        self.setFrameShape(QTableWidget.Shape.NoFrame)
+        self.setShowGrid(False)
+        self.horizontalHeader().setDefaultSectionSize(cell_size)
+        self.verticalHeader().setDefaultSectionSize(cell_size)
+        self.horizontalHeader().setMinimumSectionSize(cell_size)
+        self.verticalHeader().setMinimumSectionSize(cell_size)
+        self._cell_size = cell_size
+        vheader_w = self.verticalHeader().sizeHint().width()
+        hheader_h = self.horizontalHeader().sizeHint().height()
+        natural_w = vheader_w + cols * cell_size + 8
+        natural_h = hheader_h + rows * cell_size + 8
+        self.setMinimumSize(natural_w, natural_h)
         self._pending_coords: Set[tuple[int, int]] = set()
         self._own_reserved_coords: Set[tuple[int, int]] = set()
 
@@ -99,10 +112,13 @@ class SeatMapWidget(QTableWidget):
             own_cell_ttl = {}
         self._pending_coords = pending_coords
         self._own_reserved_coords = own_coords
+        # Scale font sizes proportionally to cell size for readability
+        label_pt = max(7, self._cell_size // 4)
+        ttl_pt = max(6, self._cell_size // 5)
         _ttl_font = QFont()
-        _ttl_font.setPointSize(5)
+        _ttl_font.setPointSize(ttl_pt)
         _label_font = QFont()
-        _label_font.setPointSize(5)
+        _label_font.setPointSize(label_pt)
         for r, row_data in enumerate(grid_data):
             for c, state in enumerate(row_data):
                 item = QTableWidgetItem()
@@ -116,10 +132,26 @@ class SeatMapWidget(QTableWidget):
                 # Set text alignment to center
                 item.setTextAlignment(Qt.AlignCenter)
 
-                # Row/col text label inside cell (small white text centered)
+                # Subtle row/col label so cells are never truly empty
+                # (empty cells can confuse Qt's backing-store repaint)
                 item.setFont(_label_font)
-                item.setText(f"{r},{c}")
-                item.setForeground(QBrush(Qt.white))
+                if display_state == "OWN_RESERVED":
+                    ttl = own_cell_ttl.get((r, c), 0)
+                    if ttl > 0:
+                        item.setText(str(ttl))
+                        item.setFont(_ttl_font)
+                    else:
+                        item.setText("Y")
+                    item.setForeground(QBrush(Qt.white))
+                elif display_state == "PENDING":
+                    # Small dot to show selection without clutter
+                    item.setText("\u2022")
+                    item.setForeground(QBrush(Qt.white))
+                else:
+                    item.setText(f"{r},{c}")
+                    # Muted text so the background color dominates
+                    from PySide6.QtGui import QColor
+                    item.setForeground(QBrush(QColor(255, 255, 255, 80)))
 
                 # Apply border style via item stylesheet hint
                 item.setData(Qt.UserRole + 1, border)
@@ -142,15 +174,10 @@ class SeatMapWidget(QTableWidget):
                         f"{self.section_name}({r},{c}) — {display_state}"
                     )
 
-                # TTL countdown text overlay on owned cells
-                if display_state == "OWN_RESERVED":
-                    ttl = own_cell_ttl.get((r, c), 0)
-                    if ttl > 0:
-                        # Show "YOU" label + TTL
-                        item.setText(f"{r},{c}\n{ttl}s")
-                        item.setFont(_ttl_font)
-
                 self.setItem(r, c, item)
+
+        # Force the viewport to repaint so background colors are immediately visible
+        self.viewport().update()
 
     def _resolve_display_state(self, row: int, col: int, server_state: str) -> str:
         """Map server state to display state, honoring overlays.
