@@ -25,11 +25,16 @@ from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSplitter,
+    QStackedWidget,
     QStatusBar,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -43,10 +48,8 @@ from frontend_pyside6.workers.network_worker import (
     run_worker,
 )
 from frontend_pyside6.widgets.connection_panel import ConnectionPanel
-from frontend_pyside6.widgets.event_log import EventLogWidget, LogDialog, LogTailer
+from frontend_pyside6.widgets.event_log import ActivityDialog, LogTailer
 from frontend_pyside6.widgets.seat_map_widget import SeatMapWidget
-from frontend_pyside6.widgets.section_stats import SectionStatsWidget
-from frontend_pyside6.widgets.transaction_panel import TransactionPanel
 from src.client.concert_client import ConcertClient, ConcertClientError
 from src.utils.config import SECTION_CONFIG
 from src.utils.enums import Section
@@ -82,9 +85,9 @@ class ConcertMainWindow(QMainWindow):
     def __init__(self) -> None:
         """Initialize the main window, state, layout, and polling timer."""
         super().__init__()
-        self.setWindowTitle("ConcertSync — Seat Reservation")
-        self.setMinimumSize(1024, 650)
-        self.resize(1280, 720)
+        self.setWindowTitle("ConcertSync — Seat Reservation Dashboard")
+        self.setMinimumSize(1280, 800)
+        self.resize(1440, 900)
 
         # ── Stylesheet (WARNING #1 fix) ──────────────────────────────────
         stylesheet_path = Path(__file__).parent / "resources" / "styles.qss"
@@ -107,6 +110,7 @@ class ConcertMainWindow(QMainWindow):
         }
         self.seat_map_snapshot = self._build_empty_seat_map()
         self.own_reserved_coords: Set[tuple[str, int, int]] = set()
+        self.own_sold_coords: Set[tuple[str, int, int]] = set()
         self.server_disconnected: bool = False
 
         # ── Log buffer for replaying events into the log dialog ────────────
@@ -116,8 +120,8 @@ class ConcertMainWindow(QMainWindow):
         # ── Log tailer (mirrors TUI LogTailer init) ───────────────────────
         self.log_tailer = LogTailer(Path("logs/system.log"))
 
-        # ── Pop-up log dialog (separate window, not embedded) ───────────────
-        self.log_dialog: LogDialog | None = None
+        # ── Pop-up activity dialog (separate window, not embedded) ──────────
+        self.log_dialog: ActivityDialog | None = None
 
         self._setup_ui()
         self._setup_polling()
@@ -127,137 +131,199 @@ class ConcertMainWindow(QMainWindow):
     # ════════════════════════════════════════════════════════════════════════
 
     def _setup_ui(self) -> None:
-        """Build the full window layout and wire all signal-slot connections."""
+        """Build the full dashboard layout and wire all signal-slot connections."""
         central = QWidget()
         self.setCentralWidget(central)
-        main_layout = QHBoxLayout(central)
+        main_layout = QVBoxLayout(central)
+        main_layout.setSpacing(0)
+        main_layout.setContentsMargins(0, 0, 0, 0)
 
-        # ═══ LEFT PANEL (~40%) ════════════════════════════════════════════
-        left_panel = QVBoxLayout()
+        # ═══ TOP TOOLBAR ═══════════════════════════════════════════════════
+        toolbar = QWidget()
+        toolbar.setObjectName("toolbar")
+        toolbar_layout = QHBoxLayout(toolbar)
+        toolbar_layout.setSpacing(16)
+        toolbar_layout.setContentsMargins(20, 10, 20, 10)
 
+        # Title area: vertical stack for title + subtitle
+        title_area = QVBoxLayout()
+        title_area.setSpacing(0)
+        title_area.setContentsMargins(0, 0, 0, 0)
+
+        self.header_title = QLabel("ConcertSync")
+        self.header_title.setObjectName("header-title")
+        title_area.addWidget(self.header_title)
+
+        self.header_subtitle = QLabel("Seat Reservation System")
+        self.header_subtitle.setObjectName("header-subtitle")
+        title_area.addWidget(self.header_subtitle)
+
+        toolbar_layout.addLayout(title_area)
+
+        toolbar_layout.addStretch()
+
+        self._toolbar_status = QLabel("Not connected")
+        self._toolbar_status.setObjectName("status-disconnected")
+        toolbar_layout.addWidget(self._toolbar_status)
+
+        self._toolbar_user = QLabel("")
+        self._toolbar_user.setObjectName("section-label")
+        toolbar_layout.addWidget(self._toolbar_user)
+
+        main_layout.addWidget(toolbar)
+
+        # ═══ MAIN SPLITTER (left control panel | seat map viewer) ═══════════
+        main_splitter = QSplitter(Qt.Horizontal)
+
+        # ═══ LEFT CONTROL PANEL ══════════════════════════════════════════════
+        left_panel_widget = QWidget()
+        left_panel = QVBoxLayout(left_panel_widget)
+        left_panel.setSpacing(16)
+        left_panel.setContentsMargins(20, 20, 20, 20)
+        left_panel_widget.setMinimumWidth(340)
+
+        # ── Section Switcher ──────────────────────────────────────────────
+        switcher_label = QLabel("Section")
+        switcher_label.setObjectName("section-label")
+        left_panel.addWidget(switcher_label)
+
+        switcher_layout = QHBoxLayout()
+        switcher_layout.setSpacing(6)
+        self._section_buttons: Dict[str, QPushButton] = {}
+        section_meta = {
+            "VIP": ("VIP", "#f5a623"),
+            "PREFERENTIAL": ("Preferential", "#d4a84b"),
+            "GENERAL": ("General", "#5a7a9a"),
+        }
+        for sec_name, (label, accent) in section_meta.items():
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setStyleSheet(
+                f"QPushButton:checked {{ background-color: {accent}; "
+                f"border-color: {accent}; }}"
+            )
+            btn.clicked.connect(lambda checked, s=sec_name: self._switch_section(s))
+            switcher_layout.addWidget(btn)
+            self._section_buttons[sec_name] = btn
+        left_panel.addLayout(switcher_layout)
+
+        left_panel.addSpacing(8)
+
+        # ── Connection ────────────────────────────────────────────────────
+        conn_label = QLabel("Connection")
+        conn_label.setObjectName("section-label")
+        left_panel.addWidget(conn_label)
         self.connection_panel = ConnectionPanel()
         left_panel.addWidget(self.connection_panel)
 
         left_panel.addSpacing(8)
 
-        self.section_stats = SectionStatsWidget()
-        left_panel.addWidget(self.section_stats)
+        # ── Selected Seats ──────────────────────────────────────────────────
+        sel_label = QLabel("Selected Seats")
+        sel_label.setObjectName("section-label")
+        left_panel.addWidget(sel_label)
+        self._selected_list = QLabel("None")
+        self._selected_list.setObjectName("selected-list")
+        self._selected_list.setWordWrap(True)
+        left_panel.addWidget(self._selected_list)
 
-        left_panel.addSpacing(8)
-
-        self.transaction_panel = TransactionPanel()
-        left_panel.addWidget(self.transaction_panel)
-
-        left_panel.addSpacing(8)
-
-        self.reserve_btn = QPushButton("Reserve Selected")
+        self.reserve_btn = QPushButton("Reserve Selected (0)")
         self.reserve_btn.setObjectName("accent-btn")
         left_panel.addWidget(self.reserve_btn)
 
         left_panel.addSpacing(8)
 
-        self.view_logs_btn = QPushButton("View Logs")
+        # ── Reservation Actions ────────────────────────────────────────────
+        action_label = QLabel("Manage Reservation")
+        action_label.setObjectName("section-label")
+        left_panel.addWidget(action_label)
+
+        tx_layout = QHBoxLayout()
+        self.tx_input = QLineEdit()
+        self.tx_input.setPlaceholderText("Transaction ID")
+        tx_layout.addWidget(self.tx_input)
+        left_panel.addLayout(tx_layout)
+
+        btn_row = QHBoxLayout()
+        self.confirm_btn = QPushButton("Confirm")
+        self.confirm_btn.clicked.connect(lambda: self._on_confirm(self.tx_input.text().strip()))
+        btn_row.addWidget(self.confirm_btn)
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.clicked.connect(lambda: self._on_cancel(self.tx_input.text().strip()))
+        btn_row.addWidget(self.cancel_btn)
+        left_panel.addLayout(btn_row)
+
+        left_panel.addSpacing(8)
+
+        # ── TTL Countdown ──────────────────────────────────────────────────
+        ttl_label = QLabel("Reservation Timer")
+        ttl_label.setObjectName("section-label")
+        left_panel.addWidget(ttl_label)
+        self._ttl_display = QLabel("No active reservation")
+        self._ttl_display.setObjectName("ttl-display")
+        self._ttl_display.setAlignment(Qt.AlignCenter)
+        left_panel.addWidget(self._ttl_display)
+
+        left_panel.addSpacing(8)
+
+        # ── Activity Center button ──────────────────────────────────────────
+        self.view_logs_btn = QPushButton("Activity Center")
         self.view_logs_btn.clicked.connect(self._show_log_window)
         left_panel.addWidget(self.view_logs_btn)
 
         left_panel.addStretch()
-        main_layout.addLayout(left_panel, stretch=18)
+        main_splitter.addWidget(left_panel_widget)
 
-        # ═══ RIGHT PANEL (~78%) ═══════════════════════════════════════════
-        right_panel = QVBoxLayout()
+        # ═══ RIGHT PANEL: single section viewer via QStackedWidget ══════════
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setSpacing(10)
+        right_layout.setContentsMargins(12, 12, 12, 12)
 
-        # ── Color legend (compact) ────────────────────────────────────────
+        # Color legend
         legend_layout = QHBoxLayout()
-        legend_layout.setContentsMargins(0, 0, 0, 2)
         legend_layout.setSpacing(8)
-        legend_states = [
-            ("AVAILABLE", "#66bb6a", "Available"),
-            ("OWN_RESERVED", "#29b6f6", "Your Seat"),
-            ("RESERVED", "#ffa726", "Reserved"),
-            ("SOLD", "#ef5350", "Sold"),
-            ("PENDING", "#ab47bc", "Pending"),
-        ]
-        for state_id, color, label_text in legend_states:
-            swatch = QLabel("  ")
+        for color, text in [
+            ("#66bb6a", "Available"),
+            ("#29b6f6", "Yours"),
+            ("#ffa726", "Reserved"),
+            ("#ef5350", "Sold"),
+            ("#ab47bc", "Pending"),
+        ]:
+            swatch = QLabel("   ")
+            swatch.setStyleSheet(f"background-color: {color};")
             swatch.setObjectName("seat-legend-swatch")
-            swatch.setStyleSheet(
-                f"background-color: {color}; min-width: 14px; max-width: 14px;"
-                f" min-height: 10px; max-height: 10px;"
-                f" border: 1px solid #4a4a6a; border-radius: 3px;"
-            )
             legend_layout.addWidget(swatch)
-            lbl = QLabel(label_text)
-            lbl.setStyleSheet("font-size: 10px; font-weight: bold; padding-right: 3px; color: #f0f0f0;")
+            lbl = QLabel(text)
+            lbl.setObjectName("legend-text")
             legend_layout.addWidget(lbl)
         legend_layout.addStretch()
-        right_panel.addLayout(legend_layout)
+        right_layout.addLayout(legend_layout)
 
-        # ── Cinema seat matrix: two-column layout ────────────────────────
-        # Left column: VIP + PREFERENTIAL stacked
-        # Right column: GENERAL (full height)
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll_content = QWidget()
-        scroll_layout = QHBoxLayout(scroll_content)
-        scroll_layout.setContentsMargins(0, 0, 0, 0)
-        scroll_layout.setSpacing(10)
-
+        # Stacked widget holds one scrollable seat map per section
+        self._section_stack = QStackedWidget()
         self.seat_maps: Dict[str, SeatMapWidget] = {}
-        section_labels = {
-            "VIP": "VIP — Orchestra Front (5×10)",
-            "PREFERENTIAL": "PREFERENTIAL — Middle Tier (10×15)",
-            "GENERAL": "GENERAL — Upper Level (20×20)",
-        }
-
-        # Left column: VIP + PREFERENTIAL
-        left_col = QVBoxLayout()
-        left_col.setSpacing(4)
-        left_col.setContentsMargins(0, 0, 0, 0)
-
-        for section_name in ["VIP", "PREFERENTIAL"]:
+        cell_sizes = {"VIP": 52, "PREFERENTIAL": 40, "GENERAL": 28}
+        for section_name in ["VIP", "PREFERENTIAL", "GENERAL"]:
             section = Section[section_name]
             cfg = SECTION_CONFIG[section]
-            header = QLabel(section_labels[section_name])
-            header.setObjectName("header-label")
-            header.setStyleSheet(
-                "font-size: 12px; font-weight: bold; color: #f5a623; "
-                "padding: 3px 0 1px 0; border-bottom: 1px solid #3a3a5c;"
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setStyleSheet("border: none; background-color: transparent;")
+            sm = SeatMapWidget(
+                section_name, cfg["rows"], cfg["cols"],
+                cell_size=cell_sizes[section_name],
             )
-            left_col.addWidget(header)
-            sm = SeatMapWidget(section_name, cfg["rows"], cfg["cols"])
             sm.seat_clicked.connect(self._on_seat_clicked)
             self.seat_maps[section_name] = sm
-            left_col.addWidget(sm)
+            scroll.setWidget(sm)
+            self._section_stack.addWidget(scroll)
+        right_layout.addWidget(self._section_stack, stretch=1)
+        main_splitter.addWidget(right_widget)
 
-        left_col.addStretch()
-        scroll_layout.addLayout(left_col, stretch=1)
-
-        # Right column: GENERAL
-        right_col = QVBoxLayout()
-        right_col.setSpacing(4)
-        right_col.setContentsMargins(0, 0, 0, 0)
-
-        section = Section["GENERAL"]
-        cfg = SECTION_CONFIG[section]
-        header = QLabel(section_labels["GENERAL"])
-        header.setObjectName("header-label")
-        header.setStyleSheet(
-            "font-size: 12px; font-weight: bold; color: #f5a623; "
-            "padding: 3px 0 1px 0; border-bottom: 1px solid #3a3a5c;"
-        )
-        right_col.addWidget(header)
-        sm = SeatMapWidget("GENERAL", cfg["rows"], cfg["cols"])
-        sm.seat_clicked.connect(self._on_seat_clicked)
-        self.seat_maps["GENERAL"] = sm
-        right_col.addWidget(sm)
-        right_col.addStretch()
-        scroll_layout.addLayout(right_col, stretch=2)
-
-        scroll_area.setWidget(scroll_content)
-        right_panel.addWidget(scroll_area, stretch=1)
-
-        main_layout.addLayout(right_panel, stretch=60)
+        main_splitter.setSizes([400, 1040])
+        main_splitter.setHandleWidth(2)
+        main_layout.addWidget(main_splitter, stretch=1)
 
         # ── Status bar ────────────────────────────────────────────────────
         self.status_bar = QStatusBar()
@@ -266,18 +332,30 @@ class ConcertMainWindow(QMainWindow):
 
         # ── Signal-slot wiring ────────────────────────────────────────────
         self.connection_panel.connect_requested.connect(self._connect_client)
-        self.transaction_panel.confirm_requested.connect(self._on_confirm)
-        self.transaction_panel.cancel_requested.connect(self._on_cancel)
+        self.connection_panel.disconnect_requested.connect(self._disconnect_client)
         self.reserve_btn.clicked.connect(self._on_reserve_selected)
 
+        # Default to VIP section
+        self._switch_section("VIP")
+
+    def _switch_section(self, section_name: str) -> None:
+        """Switch the main viewer to the selected section."""
+        for sn, btn in self._section_buttons.items():
+            btn.setChecked(sn == section_name)
+        idx = {"VIP": 0, "PREFERENTIAL": 1, "GENERAL": 2}.get(section_name, 0)
+        self._section_stack.setCurrentIndex(idx)
+        self._active_section = section_name
+
     def _show_log_window(self) -> None:
-        """Open the event log in a separate pop-up dialog window."""
+        """Open the Activity Center dialog."""
         if self.log_dialog is None or not self.log_dialog.isVisible():
-            self.log_dialog = LogDialog(self)
-            self.log_dialog.show()
-            # Replay recent buffered events into the new dialog window
+            self.log_dialog = ActivityDialog(self)
             for cat, msg in self._log_buffer:
                 self.log_dialog.append_event(cat, msg)
+            self.log_dialog.update_sessions(self.sessions)
+            self.log_dialog.update_sold_seats(self.own_sold_coords)
+            self.log_dialog.update_section_stats(self.section_snapshot)
+            self.log_dialog.show()
         else:
             self.log_dialog.raise_()
             self.log_dialog.activateWindow()
@@ -316,25 +394,63 @@ class ConcertMainWindow(QMainWindow):
 
         try:
             self.client.query()  # Test connection
+            self._toolbar_status.setText(f"Connected to {host}:{port}")
+            self._toolbar_status.setObjectName("status-connected")
+            self._toolbar_user.setText(f"User: {self.user_id}")
             self.status_bar.showMessage(f"Connected to {host}:{port} as {self.user_id}")
             self.connection_panel.set_connected(True, host, port)
             self._log_event("LOCAL", f"Connected to {host}:{port}")
             self._refresh_all()
         except ConcertClientError as exc:
             self.client = None
+            self._toolbar_status.setText("Not connected")
+            self._toolbar_status.setObjectName("status-disconnected")
+            self._toolbar_user.setText("")
             self.connection_panel.set_connected(False)
             self.status_bar.showMessage(f"Connection failed: {exc}")
             self._log_event("ERROR", f"Connection failed: {exc}")
+
+    @Slot()
+    def _disconnect_client(self) -> None:
+        """Disconnect from the server and reset all client-side state.
+
+        Clears the client reference, tracked sessions, pending selections,
+        own reserved coordinates, and all rendered widgets. Mirrors the
+        TUI disconnect behavior.
+        """
+        self.client = None
+        self.sessions.clear()
+        self.pending_selections.clear()
+        self.own_reserved_coords.clear()
+        self.section_snapshot = {
+            "VIP": {"available": 0, "reserved": 0, "sold": 0},
+            "PREFERENTIAL": {"available": 0, "reserved": 0, "sold": 0},
+            "GENERAL": {"available": 0, "reserved": 0, "sold": 0},
+        }
+        self.seat_map_snapshot = self._build_empty_seat_map()
+
+        self._toolbar_status.setText("Not connected")
+        self._toolbar_status.setObjectName("status-disconnected")
+        self._toolbar_user.setText("")
+        self.connection_panel.set_connected(False)
+        self.status_bar.showMessage("Disconnected")
+        self._log_event("LOCAL", "Disconnected from server")
+        self._render_all()
 
     # ════════════════════════════════════════════════════════════════════════
     # Polling
     # ════════════════════════════════════════════════════════════════════════
 
     def _setup_polling(self) -> None:
-        """Start the 1-second QTimer for seat map and section polling."""
+        """Start the 1-second QTimer for seat map, section polling, and TTL countdown."""
         self.poll_timer = QTimer(self)
         self.poll_timer.timeout.connect(self._poll_tick)
         self.poll_timer.start(1000)  # 1 second
+
+        # Live TTL countdown timer (updates every second independently of polls)
+        self.ttl_timer = QTimer(self)
+        self.ttl_timer.timeout.connect(self._update_live_ttl)
+        self.ttl_timer.start(1000)  # 1 second
 
     def _poll_tick(self) -> None:
         """Timer callback — dispatches network poll to a background thread.
@@ -405,7 +521,7 @@ class ConcertMainWindow(QMainWindow):
             self.connection_panel.set_session_id(session_id)
             self._log_event("LOCAL", f"Auto-loaded session {session_id} with {len(seat_list)} seat(s)")
 
-        self.transaction_panel.tx_input.setText(session_id)
+        self.tx_input.setText(session_id)
 
     @Slot(str)
     def _on_poll_error(self, error_msg: str) -> None:
@@ -415,8 +531,33 @@ class ConcertMainWindow(QMainWindow):
             error_msg: Error message string from the worker.
         """
         self.status_bar.showMessage(f"Poll error: {error_msg}")
+        self._toolbar_status.setText("Disconnected")
+        self._toolbar_status.setObjectName("status-disconnected")
         self.connection_panel.set_connected(False)
         self._log_event("ERROR", f"Poll failed: {error_msg}")
+
+    def _update_live_ttl(self) -> None:
+        """Update the TTL countdown display every second.
+
+        Re-renders the TTL label and dialog session table so that ACTIVE session
+        countdowns decrease smoothly between server polls. Lightweight:
+        does NOT trigger network calls or re-render the seat map.
+        """
+        if self.log_dialog is not None and self.log_dialog.isVisible():
+            self.log_dialog.update_sessions(self.sessions)
+
+        if not self.sessions:
+            self._set_ttl_display(None)
+            return
+
+        active_sessions = [
+            s for s in self.sessions.values() if s.state == "ACTIVE"
+        ]
+        if active_sessions:
+            active_sessions.sort(key=lambda s: s.ttl_remaining())
+            self._set_ttl_display(active_sessions[0])
+        else:
+            self._set_ttl_display(None)
 
     # ════════════════════════════════════════════════════════════════════════
     # Seat Click (mirrors TUI on_data_table_cell_selected, app.py 259-301)
@@ -424,9 +565,7 @@ class ConcertMainWindow(QMainWindow):
 
     @Slot(str, int, int, str)
     def _on_seat_clicked(self, section: str, row: int, col: int, state: str) -> None:
-        """Handle a seat click: toggle selection for AVAILABLE seats only.
-
-        Mirrors ConcertTextualApp.on_data_table_cell_selected (app.py 273-295).
+        """Handle a seat click: toggle selection for AVAILABLE seats, deselect PENDING.
 
         Args:
             section: Section name (VIP, PREFERENTIAL, GENERAL).
@@ -434,13 +573,7 @@ class ConcertMainWindow(QMainWindow):
             col: Column index (0-based).
             state: Server state string for the clicked seat.
         """
-        if state != "AVAILABLE":
-            self.status_bar.showMessage(
-                f"Seat {section}({row},{col}) — state: {state} (not selectable)"
-            )
-            return
-
-        # Check if already in pending selections
+        # Check if already in pending selections (works regardless of displayed state)
         existing_idx = None
         for i, s in enumerate(self.pending_selections):
             if s["section"] == section and s["row"] == row and s["col"] == col:
@@ -448,16 +581,28 @@ class ConcertMainWindow(QMainWindow):
                 break
 
         if existing_idx is not None:
+            # Clicking a pending seat removes it from selection
             self.pending_selections.pop(existing_idx)
             self.status_bar.showMessage(f"Deselected {section}({row},{col})")
-        else:
-            self.pending_selections.append({"section": section, "row": row, "col": col})
+            self._render_seat_map()
+            self._update_reserve_button()
+            self._update_selected_list()
+            return
+
+        if state != "AVAILABLE":
             self.status_bar.showMessage(
-                f"Selected {section}({row},{col}) — {len(self.pending_selections)} pending"
+                f"Seat {section}({row},{col}) — state: {state} (not selectable)"
             )
+            return
+
+        self.pending_selections.append({"section": section, "row": row, "col": col})
+        self.status_bar.showMessage(
+            f"Selected {section}({row},{col}) — {len(self.pending_selections)} pending"
+        )
 
         self._render_seat_map()
         self._update_reserve_button()
+        self._update_selected_list()
 
     # ════════════════════════════════════════════════════════════════════════
     # Reserve Selected (unified batch mode — RSRV-01)
@@ -486,6 +631,8 @@ class ConcertMainWindow(QMainWindow):
 
         Extracts transaction_id and TTL, builds seat summary, creates/merges
         a TrackedSession, records own reserved coordinates, and refreshes UI.
+        When extending an existing session, new seats are appended rather than
+        replacing the old set, and the TTL resets to full.
 
         Args:
             response: Server response dict with transaction_id, ttl, etc.
@@ -499,7 +646,12 @@ class ConcertMainWindow(QMainWindow):
         )
 
         session = self._track_session(tx_id, "RESERVE_BATCH", seat_summary, ttl)
-        session.seats = list(self.pending_selections)
+        # Append new seats to existing session rather than replacing
+        existing_coords = {(s["section"], s["row"], s["col"]) for s in session.seats}
+        for s in seat_objects:
+            coord = {"section": s["section"], "row": s["row"], "col": s["col"]}
+            if (s["section"], s["row"], s["col"]) not in existing_coords:
+                session.seats.append(coord)
 
         for s in seat_objects:
             self.own_reserved_coords.add((s["section"], s["row"], s["col"]))
@@ -508,7 +660,7 @@ class ConcertMainWindow(QMainWindow):
         self.pending_selections = []
 
         # Auto-fill the transaction ID in the transaction panel for one-click confirm/cancel
-        self.transaction_panel.tx_input.setText(tx_id)
+        self.tx_input.setText(tx_id)
 
         self._log_event("LOCAL", f"Reserved {count} seats — TX:{tx_id}")
         self.status_bar.showMessage(f"Reserved {count} seats — TX:{tx_id}")
@@ -591,14 +743,24 @@ class ConcertMainWindow(QMainWindow):
 
     @Slot(dict)
     def _on_confirm_success(self, response: dict) -> None:
-        """Handle confirm success: mark session CONFIRMED, keep own coords.
+        """Handle confirm success: mark session CONFIRMED, move coords to sold.
+
+        Moves the confirmed seats from own_reserved_coords to own_sold_coords
+        so they display as SOLD (red) on the map and appear in the Sold Seats tab.
 
         Args:
             response: Server response dict.
         """
         tx_id = response.get("transaction_id", "")
         if tx_id in self.sessions:
-            self.sessions[tx_id].state = "CONFIRMED"
+            session = self.sessions[tx_id]
+            session.state = "CONFIRMED"
+            # Move confirmed seats from reserved to sold tracking
+            for seat in session.seats:
+                coord = (seat.get("section", ""), seat.get("row", 0), seat.get("col", 0))
+                if coord[0]:  # valid section
+                    self.own_reserved_coords.discard(coord)
+                    self.own_sold_coords.add(coord)
 
         self._log_event("LOCAL", f"Confirmed TX:{tx_id}")
         self.status_bar.showMessage(f"Confirmed TX:{tx_id}")
@@ -678,10 +840,15 @@ class ConcertMainWindow(QMainWindow):
             if section in pending_counts:
                 pending_counts[section] += 1
 
-        self.section_stats.update_counts(self.section_snapshot, pending=pending_counts)
         self._render_seat_map()
-        self.transaction_panel.update_sessions(self.sessions)
         self._update_reserve_button()
+        self._update_selected_list()
+
+        # Sync dialog contents if open
+        if self.log_dialog is not None and self.log_dialog.isVisible():
+            self.log_dialog.update_sessions(self.sessions)
+            self.log_dialog.update_sold_seats(self.own_sold_coords)
+            self.log_dialog.update_section_stats(self.section_snapshot)
 
         # Tail server log file for new lines — forward to dialog if open
         try:
@@ -743,25 +910,37 @@ class ConcertMainWindow(QMainWindow):
         count = len(self.pending_selections)
         self.reserve_btn.setText(f"Reserve Selected ({count})")
 
-    @staticmethod
-    def _build_empty_seat_map() -> Dict[str, List[List[str]]]:
-        """Build an empty seat map snapshot for all sections.
+    def _update_selected_list(self) -> None:
+        """Update the Selected Seats label with human-readable seat list."""
+        if not self.pending_selections:
+            self._selected_list.setText("None")
+            return
+        lines = [
+            f"{s['section']}({s['row']},{s['col']})"
+            for s in self.pending_selections
+        ]
+        self._selected_list.setText("<br>".join(lines))
 
-        Mirrors ConcertTextualApp._build_empty_seat_map and PATTERNS.md
-        lines 192-200. Uses SECTION_CONFIG for per-section dimensions.
-
-        Returns:
-            Dict mapping section names to 2D lists filled with 'AVAILABLE'.
-        """
-        snapshot: Dict[str, List[List[str]]] = {}
-        for section in Section:
-            cfg = SECTION_CONFIG[section]
-            rows = cfg["rows"]
-            cols = cfg["cols"]
-            snapshot[section.name] = [
-                ["AVAILABLE" for _ in range(cols)] for _ in range(rows)
-            ]
-        return snapshot
+    def _set_ttl_display(self, session: object | None) -> None:
+        """Update the prominent TTL countdown label."""
+        if session is None or session.state != "ACTIVE":
+            self._ttl_display.setText("No active reservation")
+            self._ttl_display.setStyleSheet("color: #77767b;")
+            return
+        remaining = session.ttl_remaining()
+        if remaining <= 0:
+            self._ttl_display.setText("Reservation expired")
+            self._ttl_display.setStyleSheet("color: #e01b24;")
+            return
+        mins, secs = divmod(remaining, 60)
+        if remaining <= 30:
+            color = "#e01b24"
+        elif remaining <= 120:
+            color = "#e66100"
+        else:
+            color = "#2ec27e"
+        self._ttl_display.setText(f"{mins:02d}:{secs:02d}")
+        self._ttl_display.setStyleSheet(f"color: {color};")
 
     # ════════════════════════════════════════════════════════════════════════
     # Utilities
@@ -796,6 +975,25 @@ class ConcertMainWindow(QMainWindow):
     # ════════════════════════════════════════════════════════════════════════
     # Window Events (close guard, keyboard shortcuts)
     # ════════════════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def _build_empty_seat_map() -> Dict[str, List[List[str]]]:
+        """Build an empty seat map snapshot for all sections.
+
+        Uses SECTION_CONFIG for per-section dimensions.
+
+        Returns:
+            Dict mapping section names to 2D lists filled with 'AVAILABLE'.
+        """
+        snapshot: Dict[str, List[List[str]]] = {}
+        for section in Section:
+            cfg = SECTION_CONFIG[section]
+            rows = cfg["rows"]
+            cols = cfg["cols"]
+            snapshot[section.name] = [
+                ["AVAILABLE" for _ in range(cols)] for _ in range(rows)
+            ]
+        return snapshot
 
     def closeEvent(self, event) -> None:
         """Warn the user before closing if there are active reservations.
