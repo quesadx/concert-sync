@@ -149,9 +149,7 @@ class SeatMapWidget(QTableWidget):
                     item.setForeground(QBrush(Qt.white))
                 else:
                     item.setText(f"{r},{c}")
-                    # Muted text so the background color dominates
-                    from PySide6.QtGui import QColor
-                    item.setForeground(QBrush(QColor(255, 255, 255, 80)))
+                    item.setForeground(QBrush(Qt.white))
 
                 # Apply border style via item stylesheet hint
                 item.setData(Qt.UserRole + 1, border)
