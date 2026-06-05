@@ -174,10 +174,10 @@ class ConcertMainWindow(QMainWindow):
         legend_layout.setSpacing(10)
         legend_states = [
             ("AVAILABLE", "#4CAF50", "Available"),
-            ("OWN_RESERVED", "#2196F3", "Own"),
+            ("OWN_RESERVED", "#0D7377", "Own"),
             ("RESERVED", "#FF9800", "Reserved"),
-            ("SOLD", "#F44336", "Sold"),
-            ("PENDING", "#9C27B0", "Pending"),
+            ("SOLD", "#D32F2F", "Sold"),
+            ("PENDING", "#7B1FA2", "Pending"),
         ]
         for state_id, color, label_text in legend_states:
             swatch = QLabel("  ")
@@ -202,19 +202,32 @@ class ConcertMainWindow(QMainWindow):
         scroll_layout.setContentsMargins(0, 0, 0, 0)
         scroll_layout.setSpacing(6)
 
+        # ── Stage indicator ───────────────────────────────────────────────
+        stage_bar = QLabel("  S T A G E  ")
+        stage_bar.setAlignment(Qt.AlignCenter)
+        stage_bar.setStyleSheet(
+            "font-size: 18px; font-weight: bold; color: #d4a84b;"
+            "background-color: #1a2a3a; border: 2px solid #d4a84b;"
+            "border-radius: 6px; padding: 8px 0; letter-spacing: 6px;"
+        )
+        scroll_layout.addWidget(stage_bar)
+        scroll_layout.addSpacing(12)
+
         self.seat_maps: Dict[str, SeatMapWidget] = {}
-        section_labels = {
-            "VIP": "VIP — Orchchestra Front (5\xd710)",
-            "PREFERENTIAL": "PREFERENTIAL — Middle Tier (10\xd715)",
-            "GENERAL": "GENERAL — Upper Level (20\xd720)",
+        section_config_v2 = {
+            "VIP": ("FRONT STAGE  —  VIP  (5 \u00d7 10)", "#d4a84b"),
+            "PREFERENTIAL": ("MIDDLE  —  PREFERENTIAL  (10 \u00d7 15)", "#9ad4d6"),
+            "GENERAL": ("UPPER  —  GENERAL  (20 \u00d7 20)", "#8fb3c8"),
         }
         for section_name in ["VIP", "PREFERENTIAL", "GENERAL"]:
             section = Section[section_name]
             cfg = SECTION_CONFIG[section]
-            header = QLabel(section_labels[section_name])
+            label_text, accent_color = section_config_v2[section_name]
+            header = QLabel(label_text)
             header.setStyleSheet(
-                "font-size: 13px; font-weight: bold; color: #9ad4d6; "
-                "padding: 4px 0 2px 0;"
+                f"font-size: 14px; font-weight: bold; color: {accent_color}; "
+                "padding: 6px 0 2px 8px; "
+                f"border-bottom: 2px solid {accent_color};"
             )
             scroll_layout.addWidget(header)
             sm = SeatMapWidget(section_name, cfg["rows"], cfg["cols"])
