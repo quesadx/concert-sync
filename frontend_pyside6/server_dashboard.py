@@ -91,20 +91,16 @@ class ServerDashboardWindow(QMainWindow):
         # ── Top bar ───────────────────────────────────────────────────────
         top_bar = QHBoxLayout()
         self.title_label = QLabel("ConcertSync Server Dashboard")
-        self.title_label.setStyleSheet(
-            "font-size: 18px; font-weight: bold; color: #f5a623;"
-        )
+        self.title_label.setObjectName("header-title")
         top_bar.addWidget(self.title_label)
         top_bar.addStretch()
 
         self.status_label = QLabel("Disconnected")
-        self.status_label.setStyleSheet(
-            "font-size: 12px; font-weight: bold; color: #ef5350;"
-        )
+        self.status_label.setObjectName("status-disconnected")
         top_bar.addWidget(self.status_label)
 
         self.timestamp_label = QLabel("--:--:--")
-        self.timestamp_label.setStyleSheet("font-size: 11px; color: #a0a0a0;")
+        self.timestamp_label.setObjectName("section-label")
         top_bar.addWidget(self.timestamp_label)
         main_layout.addLayout(top_bar)
 
@@ -153,7 +149,7 @@ class ServerDashboardWindow(QMainWindow):
             self.sold_count_label,
             self.available_count_label,
         ]:
-            lbl.setStyleSheet("font-size: 12px; color: #f0f0f0;")
+            lbl.setObjectName("summary-text")
             summary_layout.addWidget(lbl)
         left_layout.addWidget(summary_group)
         left_layout.addStretch()
@@ -180,7 +176,7 @@ class ServerDashboardWindow(QMainWindow):
             total = cfg["rows"] * cfg["cols"]
 
             bar_label = QLabel(f"{section_name} — {total} seats")
-            bar_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #f0f0f0;")
+            bar_label.setObjectName("summary-text")
             occupancy_layout.addWidget(bar_label)
 
             bar = QProgressBar()
@@ -189,12 +185,12 @@ class ServerDashboardWindow(QMainWindow):
             bar.setValue(0)
             bar.setTextVisible(True)
             bar.setFormat("%v / %m occupied (%p%)")
-            bar.setStyleSheet("QProgressBar { text-align: center; }")
+            # text-align: center is handled by QSS QProgressBar rule
             self.progress_bars[section_name] = bar
             occupancy_layout.addWidget(bar)
 
             counts_label = QLabel("Available: 0 | Reserved: 0 | Sold: 0")
-            counts_label.setStyleSheet("font-size: 10px; color: #a0a0a0;")
+            counts_label.setObjectName("legend-text")
             self.progress_labels[section_name] = counts_label
             occupancy_layout.addWidget(counts_label)
 
@@ -272,7 +268,7 @@ class ServerDashboardWindow(QMainWindow):
             error_msg: Error message from the worker.
         """
         self.status_label.setText("Disconnected")
-        self.status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #ef5350;")
+        self.status_label.setObjectName("status-disconnected")
         self._update_timestamp()
         self.event_log.append_event("ERROR", f"Poll failed: {error_msg}")
 
@@ -296,7 +292,7 @@ class ServerDashboardWindow(QMainWindow):
         try:
             self.client.query()
             self.status_label.setText(f"Connected to {host}:{port}")
-            self.status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #66bb6a;")
+            self.status_label.setObjectName("status-connected")
             self.connect_btn.setText("Disconnect")
             self.connect_btn.clicked.disconnect(self._on_connect)
             self.connect_btn.clicked.connect(self._on_disconnect)
@@ -305,14 +301,14 @@ class ServerDashboardWindow(QMainWindow):
         except ConcertClientError as exc:
             self.client = None
             self.status_label.setText("Connection failed")
-            self.status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #ef5350;")
+            self.status_label.setObjectName("status-disconnected")
             self.event_log.append_event("ERROR", f"Connection failed: {exc}")
 
     def _on_disconnect(self) -> None:
         """Handle Disconnect button click: disconnect from the server."""
         self.client = None
         self.status_label.setText("Disconnected")
-        self.status_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #ef5350;")
+        self.status_label.setObjectName("status-disconnected")
         self.connect_btn.setText("Connect")
         try:
             self.connect_btn.clicked.disconnect(self._on_disconnect)

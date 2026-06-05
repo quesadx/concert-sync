@@ -7,7 +7,7 @@ Port of frontend_tui/app.py _render_session_table() lines 980-999 and
 TrackedSession-based session tracking from lines 29-45.
 """
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -67,8 +67,37 @@ class TransactionPanel(QWidget):
         layout.addWidget(self.session_table)
 
         # ── TTL countdown label ──────────────────────────────────────────────
-        self.ttl_label = QLabel("TTL: --")
+        self.ttl_label = QLabel("No active reservations")
+        self.ttl_label.setObjectName("ttl-display")
+        self.ttl_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.ttl_label)
+
+    def update_ttl_label(self, session: object | None) -> None:
+        """Update the prominent TTL countdown label.
+
+        Args:
+            session: A TrackedSession with state == 'ACTIVE', or None if no active session.
+        """
+        if session is None or session.state != "ACTIVE":
+            self.ttl_label.setText("No active reservations")
+            self.ttl_label.setStyleSheet("color: #77767b;")
+            return
+
+        remaining = session.ttl_remaining()
+        if remaining <= 0:
+            self.ttl_label.setText("Reservation expired")
+            self.ttl_label.setStyleSheet("color: #e01b24;")
+            return
+
+        mins, secs = divmod(remaining, 60)
+        self.ttl_label.setText(f"TTL: {mins:02d}:{secs:02d} — {session.transaction_id[:8]}")
+        if remaining <= 30:
+            color = "#e01b24"  # Red when urgent
+        elif remaining <= 120:
+            color = "#e66100"  # Orange when getting close
+        else:
+            color = "#2ec27e"  # Green when plenty of time
+        self.ttl_label.setStyleSheet(f"color: {color};")
 
     def update_sessions(self, sessions: dict) -> None:
         """Update the tracked sessions table from a session dict.
