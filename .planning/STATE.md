@@ -16,7 +16,7 @@ progress:
 
 **Last Updated:** 2026-06-04
 
-Last activity: 2026-06-05 - Completed quick task 260604-r7u: Fix per-seat TTL tracking
+Last activity: 2026-06-05 - Completed quick task 260604-rml: UI overhaul — numeric login, unified TTL, professional seat matrix
 
 ## Project Reference
 
@@ -45,6 +45,7 @@ See: .planning/PROJECT.md (updated 2026-06-04)
 | 260604-pww | Implement Sqlite persistence across the app. Make it so when you connect with a different user id im able to know which seats are not mine, as when I do it the UI doesnt show that the selected sits are not mine (the ttl-waiting ones). And I dont want to manually type the transaction or session id. Fix that. | 2026-06-05 | 8c67d62 | [260604-pww-implement-sqlite-persistence-across-the-](./quick/260604-pww-implement-sqlite-persistence-across-the-/) |
 | 260604-qlg | Auto-load user sessions on connect via QUERY_SEAT_MAP, remove manual session reclaim | 2026-06-05 | ee954b3 | [260604-qlg-make-it-so-each-user-has-its-own-everyth](./quick/260604-qlg-make-it-so-each-user-has-its-own-everyth/) |
 | 260604-r7u | Fix per-seat TTL tracking: each reserved seat gets its own independent TTL, expired seats release individually | 2026-06-05 | 1c5db67 | [260604-r7u-when-reserving-multiple-seats-the-ttl-on](./quick/260604-r7u-when-reserving-multiple-seats-the-ttl-on/) |
+| 260604-rml | UI overhaul: numeric login, unified global TTL that resets on every reservation, professional seat matrix visualization | 2026-06-05 | 9da40fe | [260604-rml-overhaul-the-ui-to-make-it-feel-more-lik](./quick/260604-rml-overhaul-the-ui-to-make-it-feel-more-lik/) |
 
 ## Quick Reference
 
