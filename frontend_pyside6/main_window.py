@@ -278,6 +278,12 @@ class ConcertMainWindow(QMainWindow):
         user_id = self.connection_panel.user_id_input.text().strip()
         if not user_id:
             user_id = f"user_{uuid4().hex[:8]}"
+
+        # Clear state from any previous user session to prevent stale OWN_RESERVED highlights
+        self.own_reserved_coords.clear()
+        self.sessions.clear()
+        self.pending_selections.clear()
+
         self.user_id = user_id
 
         self.client = ConcertClient(user_id=self.user_id, host=host, port=port)
@@ -459,6 +465,9 @@ class ConcertMainWindow(QMainWindow):
 
         count = len(seat_objects)
         self.pending_selections = []
+
+        # Auto-fill the transaction ID in the transaction panel for one-click confirm/cancel
+        self.transaction_panel.tx_input.setText(tx_id)
 
         self._log_event("LOCAL", f"Reserved {count} seats — TX:{tx_id}")
         self.status_bar.showMessage(f"Reserved {count} seats — TX:{tx_id}")

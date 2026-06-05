@@ -63,6 +63,7 @@ class TransactionPanel(QWidget):
         self.session_table.setHorizontalHeaderLabels(
             ["Transaction", "Type", "State", "TTL", "Seats"]
         )
+        self.session_table.cellClicked.connect(self._on_session_row_clicked)
         layout.addWidget(self.session_table)
 
         # ── TTL countdown label ──────────────────────────────────────────────
@@ -97,3 +98,18 @@ class TransactionPanel(QWidget):
             self.session_table.setItem(
                 row_idx, 4, QTableWidgetItem(session.seat_summary)
             )
+
+    def _on_session_row_clicked(self, row: int, col: int) -> None:
+        """Handle a click on a session table row: auto-fill the TX ID input.
+
+        Reads the transaction_id from column 0 of the clicked row and
+        sets it as the text of the tx_input field, enabling one-click
+        confirm/cancel without manual copy-paste.
+
+        Args:
+            row: Row index of the clicked cell.
+            col: Column index of the clicked cell (ignored).
+        """
+        tx_item = self.session_table.item(row, 0)
+        if tx_item:
+            self.tx_input.setText(tx_item.text())
