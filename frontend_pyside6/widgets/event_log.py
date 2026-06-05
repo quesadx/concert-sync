@@ -12,8 +12,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import List
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QTextCursor
-from PySide6.QtWidgets import QTextEdit
+from PySide6.QtWidgets import (
+    QDialog,
+    QPushButton,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from frontend_pyside6.models.seat_state import CATEGORY_COLORS
 
@@ -67,6 +74,39 @@ class EventLogWidget(QTextEdit):
         self.moveCursor(QTextCursor.End)
         self.insertPlainText(line + "\n")
         self.ensureCursorVisible()
+
+
+class LogDialog(QDialog):
+    """Pop-up dialog window for viewing the full event log.
+
+    Can be opened and closed independently without affecting the main
+    window layout. Reuses EventLogWidget internally.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        """Initialize the log dialog with an EventLogWidget inside."""
+        super().__init__(parent)
+        self.setWindowTitle("Event Log")
+        self.setMinimumSize(700, 400)
+        self.resize(800, 500)
+        layout = QVBoxLayout(self)
+        self.event_log = EventLogWidget()
+        layout.addWidget(self.event_log)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.close)
+        layout.addWidget(close_btn)
+
+    def append_event(self, category: str, message: str) -> None:
+        """Forward event to the internal EventLogWidget."""
+        self.event_log.append_event(category, message)
+
+    def append_line(self, line: str) -> None:
+        """Forward raw line to the internal EventLogWidget."""
+        self.event_log.append_line(line)
+
+    def clear_log(self) -> None:
+        """Clear the internal event log."""
+        self.event_log.clear_log()
 
 
 class LogTailer:

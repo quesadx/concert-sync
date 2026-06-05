@@ -53,8 +53,8 @@ class SeatMapWidget(QTableWidget):
         self.cellClicked.connect(self._on_cell_clicked)
         self.setEditTriggers(QTableWidget.NoEditTriggers)
         self.setSelectionMode(QTableWidget.SingleSelection)
-        self.horizontalHeader().setDefaultSectionSize(32)
-        self.verticalHeader().setDefaultSectionSize(32)
+        self.horizontalHeader().setDefaultSectionSize(22)
+        self.verticalHeader().setDefaultSectionSize(22)
         self._pending_coords: Set[tuple[int, int]] = set()
         self._own_reserved_coords: Set[tuple[int, int]] = set()
 
@@ -100,9 +100,9 @@ class SeatMapWidget(QTableWidget):
         self._pending_coords = pending_coords
         self._own_reserved_coords = own_coords
         _ttl_font = QFont()
-        _ttl_font.setPointSize(6)
+        _ttl_font.setPointSize(5)
         _label_font = QFont()
-        _label_font.setPointSize(7)
+        _label_font.setPointSize(5)
         for r, row_data in enumerate(grid_data):
             for c, state in enumerate(row_data):
                 item = QTableWidgetItem()

@@ -43,7 +43,7 @@ from frontend_pyside6.workers.network_worker import (
     run_worker,
 )
 from frontend_pyside6.widgets.connection_panel import ConnectionPanel
-from frontend_pyside6.widgets.event_log import EventLogWidget, LogTailer
+from frontend_pyside6.widgets.event_log import EventLogWidget, LogDialog, LogTailer
 from frontend_pyside6.widgets.seat_map_widget import SeatMapWidget
 from frontend_pyside6.widgets.section_stats import SectionStatsWidget
 from frontend_pyside6.widgets.transaction_panel import TransactionPanel
@@ -83,8 +83,8 @@ class ConcertMainWindow(QMainWindow):
         """Initialize the main window, state, layout, and polling timer."""
         super().__init__()
         self.setWindowTitle("ConcertSync — Seat Reservation")
-        self.setMinimumSize(1024, 768)
-        self.resize(1320, 920)
+        self.setMinimumSize(1024, 650)
+        self.resize(1280, 720)
 
         # ── Stylesheet (WARNING #1 fix) ──────────────────────────────────
         stylesheet_path = Path(__file__).parent / "resources" / "styles.qss"
@@ -109,8 +109,15 @@ class ConcertMainWindow(QMainWindow):
         self.own_reserved_coords: Set[tuple[str, int, int]] = set()
         self.server_disconnected: bool = False
 
+        # ── Log buffer for replaying events into the log dialog ────────────
+        self._log_buffer: list[tuple[str, str]] = []
+        self._log_buffer_max = 200
+
         # ── Log tailer (mirrors TUI LogTailer init) ───────────────────────
         self.log_tailer = LogTailer(Path("logs/system.log"))
+
+        # ── Pop-up log dialog (separate window, not embedded) ───────────────
+        self.log_dialog: LogDialog | None = None
 
         self._setup_ui()
         self._setup_polling()
@@ -147,8 +154,14 @@ class ConcertMainWindow(QMainWindow):
         self.reserve_btn.setObjectName("accent-btn")
         left_panel.addWidget(self.reserve_btn)
 
+        left_panel.addSpacing(8)
+
+        self.view_logs_btn = QPushButton("View Logs")
+        self.view_logs_btn.clicked.connect(self._show_log_window)
+        left_panel.addWidget(self.view_logs_btn)
+
         left_panel.addStretch()
-        main_layout.addLayout(left_panel, stretch=22)
+        main_layout.addLayout(left_panel, stretch=18)
 
         # ═══ RIGHT PANEL (~78%) ═══════════════════════════════════════════
         right_panel = QVBoxLayout()
@@ -156,7 +169,7 @@ class ConcertMainWindow(QMainWindow):
         # ── Color legend (compact) ────────────────────────────────────────
         legend_layout = QHBoxLayout()
         legend_layout.setContentsMargins(0, 0, 0, 2)
-        legend_layout.setSpacing(10)
+        legend_layout.setSpacing(8)
         legend_states = [
             ("AVAILABLE", "#66bb6a", "Available"),
             ("OWN_RESERVED", "#29b6f6", "Your Seat"),
@@ -168,68 +181,81 @@ class ConcertMainWindow(QMainWindow):
             swatch = QLabel("  ")
             swatch.setObjectName("seat-legend-swatch")
             swatch.setStyleSheet(
-                f"background-color: {color}; min-width: 18px; max-width: 18px;"
-                f" min-height: 12px; max-height: 12px;"
+                f"background-color: {color}; min-width: 14px; max-width: 14px;"
+                f" min-height: 10px; max-height: 10px;"
                 f" border: 1px solid #4a4a6a; border-radius: 3px;"
             )
             legend_layout.addWidget(swatch)
             lbl = QLabel(label_text)
-            lbl.setStyleSheet("font-size: 11px; font-weight: bold; padding-right: 4px; color: #f0f0f0;")
+            lbl.setStyleSheet("font-size: 10px; font-weight: bold; padding-right: 3px; color: #f0f0f0;")
             legend_layout.addWidget(lbl)
         legend_layout.addStretch()
         right_panel.addLayout(legend_layout)
 
-        # ── Cinema seat matrix: all sections stacked vertically ───────────
+        # ── Cinema seat matrix: two-column layout ────────────────────────
+        # Left column: VIP + PREFERENTIAL stacked
+        # Right column: GENERAL (full height)
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll_content = QWidget()
-        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout = QHBoxLayout(scroll_content)
         scroll_layout.setContentsMargins(0, 0, 0, 0)
-        scroll_layout.setSpacing(6)
+        scroll_layout.setSpacing(10)
 
         self.seat_maps: Dict[str, SeatMapWidget] = {}
         section_labels = {
-            "VIP": "VIP — Orchestra Front (5\xd710)",
-            "PREFERENTIAL": "PREFERENTIAL — Middle Tier (10\xd715)",
-            "GENERAL": "GENERAL — Upper Level (20\xd720)",
+            "VIP": "VIP — Orchestra Front (5×10)",
+            "PREFERENTIAL": "PREFERENTIAL — Middle Tier (10×15)",
+            "GENERAL": "GENERAL — Upper Level (20×20)",
         }
-        for section_name in ["VIP", "PREFERENTIAL", "GENERAL"]:
+
+        # Left column: VIP + PREFERENTIAL
+        left_col = QVBoxLayout()
+        left_col.setSpacing(4)
+        left_col.setContentsMargins(0, 0, 0, 0)
+
+        for section_name in ["VIP", "PREFERENTIAL"]:
             section = Section[section_name]
             cfg = SECTION_CONFIG[section]
             header = QLabel(section_labels[section_name])
             header.setObjectName("header-label")
             header.setStyleSheet(
-                "font-size: 14px; font-weight: bold; color: #f5a623; "
-                "padding: 6px 0 3px 0; border-bottom: 1px solid #3a3a5c;"
+                "font-size: 12px; font-weight: bold; color: #f5a623; "
+                "padding: 3px 0 1px 0; border-bottom: 1px solid #3a3a5c;"
             )
-            scroll_layout.addWidget(header)
+            left_col.addWidget(header)
             sm = SeatMapWidget(section_name, cfg["rows"], cfg["cols"])
             sm.seat_clicked.connect(self._on_seat_clicked)
             self.seat_maps[section_name] = sm
-            scroll_layout.addWidget(sm)
+            left_col.addWidget(sm)
 
-        scroll_layout.addStretch()
+        left_col.addStretch()
+        scroll_layout.addLayout(left_col, stretch=1)
+
+        # Right column: GENERAL
+        right_col = QVBoxLayout()
+        right_col.setSpacing(4)
+        right_col.setContentsMargins(0, 0, 0, 0)
+
+        section = Section["GENERAL"]
+        cfg = SECTION_CONFIG[section]
+        header = QLabel(section_labels["GENERAL"])
+        header.setObjectName("header-label")
+        header.setStyleSheet(
+            "font-size: 12px; font-weight: bold; color: #f5a623; "
+            "padding: 3px 0 1px 0; border-bottom: 1px solid #3a3a5c;"
+        )
+        right_col.addWidget(header)
+        sm = SeatMapWidget("GENERAL", cfg["rows"], cfg["cols"])
+        sm.seat_clicked.connect(self._on_seat_clicked)
+        self.seat_maps["GENERAL"] = sm
+        right_col.addWidget(sm)
+        right_col.addStretch()
+        scroll_layout.addLayout(right_col, stretch=2)
+
         scroll_area.setWidget(scroll_content)
         right_panel.addWidget(scroll_area, stretch=1)
-
-        # ── Event log toggle ────────────────────────────────────────────
-        self.event_log = EventLogWidget()
-        self.event_log.setObjectName("event-log-panel")
-        self.event_log.setFixedHeight(120)
-
-        log_header = QHBoxLayout()
-        self.log_toggle_btn = QPushButton("\u25bc Event Log")
-        self.log_toggle_btn.setCheckable(True)
-        self.log_toggle_btn.setChecked(True)
-        self.log_toggle_btn.clicked.connect(self._toggle_event_log)
-        log_header.addWidget(self.log_toggle_btn)
-        log_header.addStretch()
-        clear_log_btn = QPushButton("Clear")
-        clear_log_btn.clicked.connect(self.event_log.clear)
-        log_header.addWidget(clear_log_btn)
-        right_panel.addLayout(log_header)
-        right_panel.addWidget(self.event_log)
 
         main_layout.addLayout(right_panel, stretch=60)
 
@@ -244,13 +270,17 @@ class ConcertMainWindow(QMainWindow):
         self.transaction_panel.cancel_requested.connect(self._on_cancel)
         self.reserve_btn.clicked.connect(self._on_reserve_selected)
 
-    def _toggle_event_log(self) -> None:
-        """Show or hide the event log based on toggle button state."""
-        visible = self.log_toggle_btn.isChecked()
-        self.event_log.setVisible(visible)
-        self.log_toggle_btn.setText(
-            "\u25bc Event Log" if visible else "\u25b6 Event Log"
-        )
+    def _show_log_window(self) -> None:
+        """Open the event log in a separate pop-up dialog window."""
+        if self.log_dialog is None or not self.log_dialog.isVisible():
+            self.log_dialog = LogDialog(self)
+            self.log_dialog.show()
+            # Replay recent buffered events into the new dialog window
+            for cat, msg in self._log_buffer:
+                self.log_dialog.append_event(cat, msg)
+        else:
+            self.log_dialog.raise_()
+            self.log_dialog.activateWindow()
 
     # ════════════════════════════════════════════════════════════════════════
     # Connection
@@ -653,10 +683,14 @@ class ConcertMainWindow(QMainWindow):
         self.transaction_panel.update_sessions(self.sessions)
         self._update_reserve_button()
 
-        # Tail server log file for new lines
+        # Tail server log file for new lines — forward to dialog if open
         try:
             for line in self.log_tailer.read_new_lines(max_lines=50):
-                self.event_log.append_line(line)
+                self._log_buffer.append(("SERVER", line))
+                if len(self._log_buffer) > self._log_buffer_max:
+                    self._log_buffer.pop(0)
+                if self.log_dialog is not None and self.log_dialog.isVisible():
+                    self.log_dialog.append_line(line)
         except Exception:
             pass  # Log file may not exist yet
 
@@ -744,13 +778,20 @@ class ConcertMainWindow(QMainWindow):
         self._poll_tick()
 
     def _log_event(self, category: str, message: str) -> None:
-        """Append a color-coded event to the event log widget.
+        """Append a color-coded event to the event log buffer and dialog.
+
+        Events are buffered so the log dialog can replay them when opened.
+        If the log dialog is already open, the event is forwarded immediately.
 
         Args:
             category: Event category (LOCAL, REMOTE, ERROR, SERVER, EXPIRE).
             message: The event description text.
         """
-        self.event_log.append_event(category, message)
+        self._log_buffer.append((category, message))
+        if len(self._log_buffer) > self._log_buffer_max:
+            self._log_buffer.pop(0)
+        if self.log_dialog is not None and self.log_dialog.isVisible():
+            self.log_dialog.append_event(category, message)
 
     # ════════════════════════════════════════════════════════════════════════
     # Window Events (close guard, keyboard shortcuts)
