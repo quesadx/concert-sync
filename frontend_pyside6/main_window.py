@@ -144,6 +144,7 @@ class ConcertMainWindow(QMainWindow):
         left_panel.addSpacing(8)
 
         self.reserve_btn = QPushButton("Reserve Selected")
+        self.reserve_btn.setObjectName("accent-btn")
         left_panel.addWidget(self.reserve_btn)
 
         left_panel.addStretch()
@@ -157,22 +158,23 @@ class ConcertMainWindow(QMainWindow):
         legend_layout.setContentsMargins(0, 0, 0, 2)
         legend_layout.setSpacing(10)
         legend_states = [
-            ("AVAILABLE", "#4CAF50", "Available"),
-            ("OWN_RESERVED", "#2196F3", "Own"),
-            ("RESERVED", "#FF9800", "Reserved"),
-            ("SOLD", "#F44336", "Sold"),
-            ("PENDING", "#9C27B0", "Pending"),
+            ("AVAILABLE", "#66bb6a", "Available"),
+            ("OWN_RESERVED", "#29b6f6", "Your Seat"),
+            ("RESERVED", "#ffa726", "Reserved"),
+            ("SOLD", "#ef5350", "Sold"),
+            ("PENDING", "#ab47bc", "Pending"),
         ]
         for state_id, color, label_text in legend_states:
             swatch = QLabel("  ")
+            swatch.setObjectName("seat-legend-swatch")
             swatch.setStyleSheet(
-                f"background-color: {color}; min-width: 14px; max-width: 14px;"
-                f" min-height: 10px; max-height: 10px;"
-                f" border: 1px solid #3b4a64; border-radius: 2px;"
+                f"background-color: {color}; min-width: 18px; max-width: 18px;"
+                f" min-height: 12px; max-height: 12px;"
+                f" border: 1px solid #4a4a6a; border-radius: 3px;"
             )
             legend_layout.addWidget(swatch)
             lbl = QLabel(label_text)
-            lbl.setStyleSheet("font-size: 10px; padding-right: 2px;")
+            lbl.setStyleSheet("font-size: 11px; font-weight: bold; padding-right: 4px; color: #f0f0f0;")
             legend_layout.addWidget(lbl)
         legend_layout.addStretch()
         right_panel.addLayout(legend_layout)
@@ -188,7 +190,7 @@ class ConcertMainWindow(QMainWindow):
 
         self.seat_maps: Dict[str, SeatMapWidget] = {}
         section_labels = {
-            "VIP": "VIP — Orchchestra Front (5\xd710)",
+            "VIP": "VIP — Orchestra Front (5\xd710)",
             "PREFERENTIAL": "PREFERENTIAL — Middle Tier (10\xd715)",
             "GENERAL": "GENERAL — Upper Level (20\xd720)",
         }
@@ -196,9 +198,10 @@ class ConcertMainWindow(QMainWindow):
             section = Section[section_name]
             cfg = SECTION_CONFIG[section]
             header = QLabel(section_labels[section_name])
+            header.setObjectName("header-label")
             header.setStyleSheet(
-                "font-size: 13px; font-weight: bold; color: #9ad4d6; "
-                "padding: 4px 0 2px 0;"
+                "font-size: 14px; font-weight: bold; color: #f5a623; "
+                "padding: 6px 0 3px 0; border-bottom: 1px solid #3a3a5c;"
             )
             scroll_layout.addWidget(header)
             sm = SeatMapWidget(section_name, cfg["rows"], cfg["cols"])
@@ -284,10 +287,12 @@ class ConcertMainWindow(QMainWindow):
         try:
             self.client.query()  # Test connection
             self.status_bar.showMessage(f"Connected to {host}:{port} as {self.user_id}")
+            self.connection_panel.set_connected(True, host, port)
             self._log_event("LOCAL", f"Connected to {host}:{port}")
             self._refresh_all()
         except ConcertClientError as exc:
             self.client = None
+            self.connection_panel.set_connected(False)
             self.status_bar.showMessage(f"Connection failed: {exc}")
             self._log_event("ERROR", f"Connection failed: {exc}")
 
@@ -380,6 +385,7 @@ class ConcertMainWindow(QMainWindow):
             error_msg: Error message string from the worker.
         """
         self.status_bar.showMessage(f"Poll error: {error_msg}")
+        self.connection_panel.set_connected(False)
         self._log_event("ERROR", f"Poll failed: {error_msg}")
 
     # ════════════════════════════════════════════════════════════════════════

@@ -16,7 +16,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QFont
 from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 
-from frontend_pyside6.models.seat_state import SEAT_COLORS
+from frontend_pyside6.models.seat_state import SEAT_COLORS, SEAT_BORDERS
 
 
 class SeatMapWidget(QTableWidget):
@@ -53,8 +53,8 @@ class SeatMapWidget(QTableWidget):
         self.cellClicked.connect(self._on_cell_clicked)
         self.setEditTriggers(QTableWidget.NoEditTriggers)
         self.setSelectionMode(QTableWidget.SingleSelection)
-        self.horizontalHeader().setDefaultSectionSize(30)
-        self.verticalHeader().setDefaultSectionSize(30)
+        self.horizontalHeader().setDefaultSectionSize(32)
+        self.verticalHeader().setDefaultSectionSize(32)
         self._pending_coords: Set[tuple[int, int]] = set()
         self._own_reserved_coords: Set[tuple[int, int]] = set()
 
@@ -84,7 +84,8 @@ class SeatMapWidget(QTableWidget):
 
         Rebuilds every cell with the correct background color based on
         server state, pending selections, and own reservations. Adds
-        tooltips for every cell and TTL countdown text on owned cells.
+        row/col text labels inside cells, tooltips for every cell, and
+        TTL countdown text on owned cells.
 
         Args:
             grid_data: 2D list of server state strings (AVAILABLE, RESERVED, SOLD).
@@ -100,22 +101,55 @@ class SeatMapWidget(QTableWidget):
         self._own_reserved_coords = own_coords
         _ttl_font = QFont()
         _ttl_font.setPointSize(6)
+        _label_font = QFont()
+        _label_font.setPointSize(7)
         for r, row_data in enumerate(grid_data):
             for c, state in enumerate(row_data):
                 item = QTableWidgetItem()
                 display_state = self._resolve_display_state(r, c, state)
                 color = SEAT_COLORS.get(display_state, SEAT_COLORS["AVAILABLE"])
+                border = SEAT_BORDERS.get(display_state, SEAT_BORDERS["AVAILABLE"])
                 item.setBackground(QBrush(color))
                 item.setData(Qt.UserRole, state)  # Store original server state
                 item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                # Tooltip: section(row,col) — STATE
-                item.setToolTip(f"{self.section_name}({r},{c}) — {display_state}")
+
+                # Set text alignment to center
+                item.setTextAlignment(Qt.AlignCenter)
+
+                # Row/col text label inside cell (small white text centered)
+                item.setFont(_label_font)
+                item.setText(f"{r},{c}")
+                item.setForeground(QBrush(Qt.white))
+
+                # Apply border style via item stylesheet hint
+                item.setData(Qt.UserRole + 1, border)
+
+                # Tooltip: clearly distinguish YOUR reservation vs others
+                if display_state == "OWN_RESERVED":
+                    item.setToolTip(
+                        f"{self.section_name}({r},{c}) — YOUR reservation (expires in {own_cell_ttl.get((r, c), 0)}s)"
+                    )
+                elif display_state == "RESERVED":
+                    item.setToolTip(
+                        f"{self.section_name}({r},{c}) — Reserved by another user"
+                    )
+                elif display_state == "PENDING":
+                    item.setToolTip(
+                        f"{self.section_name}({r},{c}) — Your selection (click to deselect)"
+                    )
+                else:
+                    item.setToolTip(
+                        f"{self.section_name}({r},{c}) — {display_state}"
+                    )
+
                 # TTL countdown text overlay on owned cells
                 if display_state == "OWN_RESERVED":
                     ttl = own_cell_ttl.get((r, c), 0)
                     if ttl > 0:
-                        item.setText(f"{ttl}s")
+                        # Show "YOU" label + TTL
+                        item.setText(f"{r},{c}\n{ttl}s")
                         item.setFont(_ttl_font)
+
                 self.setItem(r, c, item)
 
     def _resolve_display_state(self, row: int, col: int, server_state: str) -> str:
