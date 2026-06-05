@@ -16,7 +16,7 @@ progress:
 
 **Last Updated:** 2026-06-04
 
-Last activity: 2026-06-05 - Completed quick task 260604-qz7: Cinema-style UI overhaul — gold accents, screen graphic, theater theme
+Last activity: 2026-06-05 - Completed quick task 260604-qlg: Auto-load user sessions on connect, remove manual session reclaim
 
 ## Project Reference
 
@@ -44,7 +44,6 @@ See: .planning/PROJECT.md (updated 2026-06-04)
 | 260604-pei | Cinema-style UI overhaul: full seat matrix, compact layout, fix ERR_INVALID_PAYLOAD reserve bug, intuitive seat picking | 2026-06-05 | 12d6c87 | [260604-pei-cinema-style-ui-overhaul-full-seat-matri](./quick/260604-pei-cinema-style-ui-overhaul-full-seat-matri/) |
 | 260604-pww | Implement Sqlite persistence across the app. Make it so when you connect with a different user id im able to know which seats are not mine, as when I do it the UI doesnt show that the selected sits are not mine (the ttl-waiting ones). And I dont want to manually type the transaction or session id. Fix that. | 2026-06-05 | 8c67d62 | [260604-pww-implement-sqlite-persistence-across-the-](./quick/260604-pww-implement-sqlite-persistence-across-the-/) |
 | 260604-qlg | Auto-load user sessions on connect via QUERY_SEAT_MAP, remove manual session reclaim | 2026-06-05 | ee954b3 | [260604-qlg-make-it-so-each-user-has-its-own-everyth](./quick/260604-qlg-make-it-so-each-user-has-its-own-everyth/) |
-| 260604-qz7 | Cinema-style UI overhaul — gold accents, screen graphic, theater theme | 2026-06-05 | 779bb15 | [260604-qz7-i-need-you-to-make-the-ui-not-look-like-](./quick/260604-qz7-i-need-you-to-make-the-ui-not-look-like-/) |
 
 ## Quick Reference
 
