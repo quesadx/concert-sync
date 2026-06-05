@@ -63,6 +63,18 @@ class UserSession:
         self.seat_timestamps[(section, row, col)] = time.time()
         self.last_activity = time.time()
 
+    def refresh_all_seat_timestamps(self) -> None:
+        """Reset all seat timestamps and last_activity to the current time.
+
+        Called when a user makes any new reservation — gives all existing
+        seats a fresh TTL alongside the newly reserved ones. Ensures the
+        user's entire session has a unified, globally-refreshed TTL.
+        """
+        now = time.time()
+        self.last_activity = now
+        for seat_key in self.seat_timestamps:
+            self.seat_timestamps[seat_key] = now
+
 
 class SessionManager:
     def __init__(self):
