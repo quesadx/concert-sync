@@ -23,13 +23,12 @@ from PySide6.QtCore import QSettings, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
     QApplication,
-    QComboBox,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QStatusBar,
     QVBoxLayout,
     QWidget,
@@ -73,7 +72,6 @@ class ConcertMainWindow(QMainWindow):
         pending_selections: List of dicts with 'section','row','col' keys.
         section_snapshot: Last known section availability counts.
         seat_map_snapshot: Last known full seat map grid.
-        selected_map_section: Currently visible section name.
         own_reserved_coords: Set of (section, row, col) tuples owned by this user.
         server_disconnected: Whether the server notified a disconnect.
     """
@@ -86,6 +84,7 @@ class ConcertMainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("ConcertSync — Seat Reservation")
         self.setMinimumSize(1024, 768)
+        self.resize(1320, 920)
 
         # ── Stylesheet (WARNING #1 fix) ──────────────────────────────────
         stylesheet_path = Path(__file__).parent / "resources" / "styles.qss"
@@ -107,7 +106,6 @@ class ConcertMainWindow(QMainWindow):
             "GENERAL": {"available": 0, "reserved": 0, "sold": 0},
         }
         self.seat_map_snapshot = self._build_empty_seat_map()
-        self.selected_map_section = "GENERAL"
         self.own_reserved_coords: Set[tuple[str, int, int]] = set()
         self.server_disconnected: bool = False
 
@@ -155,75 +153,88 @@ class ConcertMainWindow(QMainWindow):
         left_panel.addWidget(self.reserve_btn)
 
         left_panel.addStretch()
-        main_layout.addLayout(left_panel, stretch=40)
+        main_layout.addLayout(left_panel, stretch=22)
 
-        # ═══ RIGHT PANEL (~60%) ═══════════════════════════════════════════
+        # ═══ RIGHT PANEL (~78%) ═══════════════════════════════════════════
         right_panel = QVBoxLayout()
 
-        # ── Section selector ──────────────────────────────────────────────
-        selector_layout = QHBoxLayout()
-        selector_layout.addWidget(QLabel("Section:"))
-        self.section_combo = QComboBox()
-        self.section_combo.addItems(["VIP", "PREFERENTIAL", "GENERAL"])
-        self.section_combo.currentTextChanged.connect(self._on_section_changed)
-        selector_layout.addWidget(self.section_combo)
-        selector_layout.addStretch()
-        right_panel.addLayout(selector_layout)
-
-        # ── Color legend ──────────────────────────────────────────────────
+        # ── Color legend (compact) ────────────────────────────────────────
         legend_layout = QHBoxLayout()
+        legend_layout.setContentsMargins(0, 0, 0, 2)
+        legend_layout.setSpacing(10)
         legend_states = [
             ("AVAILABLE", "#4CAF50", "Available"),
-            ("OWN_RESERVED", "#2196F3", "Own Reserved"),
+            ("OWN_RESERVED", "#2196F3", "Own"),
             ("RESERVED", "#FF9800", "Reserved"),
             ("SOLD", "#F44336", "Sold"),
             ("PENDING", "#9C27B0", "Pending"),
         ]
         for state_id, color, label_text in legend_states:
-            frame = QFrame()
-            frame.setFrameStyle(QFrame.StyledPanel)
-            frame.setStyleSheet(
-                f"border: 1px solid #3b4a64; border-radius: 3px; padding: 2px;"
-            )
-            pair_layout = QHBoxLayout(frame)
-            pair_layout.setContentsMargins(2, 2, 4, 2)
-            pair_layout.setSpacing(4)
             swatch = QLabel("  ")
-            swatch.setObjectName("seat-legend-swatch")
             swatch.setStyleSheet(
-                f"background-color: {color}; min-width: 16px; max-width: 16px;"
-                f" min-height: 12px; max-height: 12px;"
+                f"background-color: {color}; min-width: 14px; max-width: 14px;"
+                f" min-height: 10px; max-height: 10px;"
                 f" border: 1px solid #3b4a64; border-radius: 2px;"
             )
-            pair_layout.addWidget(swatch)
-            pair_layout.addWidget(QLabel(label_text))
-            legend_layout.addWidget(frame)
+            legend_layout.addWidget(swatch)
+            lbl = QLabel(label_text)
+            lbl.setStyleSheet("font-size: 10px; padding-right: 2px;")
+            legend_layout.addWidget(lbl)
         legend_layout.addStretch()
         right_panel.addLayout(legend_layout)
 
-        # ── Seat maps (one per section, created upfront) ──────────────────
+        # ── Cinema seat matrix: all sections stacked vertically ───────────
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_layout.setSpacing(6)
+
         self.seat_maps: Dict[str, SeatMapWidget] = {}
+        section_labels = {
+            "VIP": "VIP — Orchchestra Front (5\xd710)",
+            "PREFERENTIAL": "PREFERENTIAL — Middle Tier (10\xd715)",
+            "GENERAL": "GENERAL — Upper Level (20\xd720)",
+        }
         for section_name in ["VIP", "PREFERENTIAL", "GENERAL"]:
             section = Section[section_name]
             cfg = SECTION_CONFIG[section]
+            header = QLabel(section_labels[section_name])
+            header.setStyleSheet(
+                "font-size: 13px; font-weight: bold; color: #9ad4d6; "
+                "padding: 4px 0 2px 0;"
+            )
+            scroll_layout.addWidget(header)
             sm = SeatMapWidget(section_name, cfg["rows"], cfg["cols"])
             sm.seat_clicked.connect(self._on_seat_clicked)
             self.seat_maps[section_name] = sm
-            right_panel.addWidget(sm)
+            scroll_layout.addWidget(sm)
 
-        right_panel.addSpacing(8)
+        scroll_layout.addStretch()
+        scroll_area.setWidget(scroll_content)
+        right_panel.addWidget(scroll_area, stretch=1)
 
+        # ── Event log toggle ────────────────────────────────────────────
         self.event_log = EventLogWidget()
-        right_panel.addWidget(self.event_log, stretch=1)
+        self.event_log.setObjectName("event-log-panel")
+        self.event_log.setFixedHeight(120)
 
-        clear_log_btn = QPushButton("Clear Log")
+        log_header = QHBoxLayout()
+        self.log_toggle_btn = QPushButton("\u25bc Event Log")
+        self.log_toggle_btn.setCheckable(True)
+        self.log_toggle_btn.setChecked(True)
+        self.log_toggle_btn.clicked.connect(self._toggle_event_log)
+        log_header.addWidget(self.log_toggle_btn)
+        log_header.addStretch()
+        clear_log_btn = QPushButton("Clear")
         clear_log_btn.clicked.connect(self.event_log.clear)
-        right_panel.addWidget(clear_log_btn)
+        log_header.addWidget(clear_log_btn)
+        right_panel.addLayout(log_header)
+        right_panel.addWidget(self.event_log)
 
         main_layout.addLayout(right_panel, stretch=60)
-
-        # ── Initially show only the default section ───────────────────────
-        self._show_section("GENERAL")
 
         # ── Status bar ────────────────────────────────────────────────────
         self.status_bar = QStatusBar()
@@ -237,24 +248,13 @@ class ConcertMainWindow(QMainWindow):
         self.transaction_panel.cancel_requested.connect(self._on_cancel)
         self.reserve_btn.clicked.connect(self._on_reserve_selected)
 
-    def _show_section(self, section_name: str) -> None:
-        """Hide all seat maps and show only the selected section.
-
-        Args:
-            section_name: One of 'VIP', 'PREFERENTIAL', or 'GENERAL'.
-        """
-        for name, widget in self.seat_maps.items():
-            widget.setVisible(name == section_name)
-
-    @Slot(str)
-    def _on_section_changed(self, section_name: str) -> None:
-        """Handle section combo box selection change.
-
-        Args:
-            section_name: The newly selected section name.
-        """
-        self.selected_map_section = section_name
-        self._show_section(section_name)
+    def _toggle_event_log(self) -> None:
+        """Show or hide the event log based on toggle button state."""
+        visible = self.log_toggle_btn.isChecked()
+        self.event_log.setVisible(visible)
+        self.log_toggle_btn.setText(
+            "\u25bc Event Log" if visible else "\u25b6 Event Log"
+        )
 
     # ════════════════════════════════════════════════════════════════════════
     # Connection
@@ -642,45 +642,48 @@ class ConcertMainWindow(QMainWindow):
             pass  # Log file may not exist yet
 
     def _render_seat_map(self) -> None:
-        """Refresh only the currently visible seat map widget.
-
-        Builds per-section pending and own coordinate sets from the global
-        pending_selections list and own_reserved_coords set, then delegates
-        to SeatMapWidget.update_grid() for cell-by-cell color refresh.
-        """
-        section = self.selected_map_section
-        widget = self.seat_maps.get(section)
-        if widget is None:
-            return
-        grid = self.seat_map_snapshot.get(section, [])
-        if not grid:
-            return
-
-        # Pending coords for this section
-        pending_coords: Set[tuple[int, int]] = set()
+        """Refresh all visible seat map widgets with current snapshot data."""
+        pending_by_section: Dict[str, Set[tuple[int, int]]] = {
+            "VIP": set(),
+            "PREFERENTIAL": set(),
+            "GENERAL": set(),
+        }
         for s in self.pending_selections:
-            if s["section"] == section:
-                pending_coords.add((s["row"], s["col"]))
+            pending_by_section[s["section"]].add((s["row"], s["col"]))
 
-        # Own reserved coords for this section
-        own_coords: Set[tuple[int, int]] = set()
+        own_by_section: Dict[str, Set[tuple[int, int]]] = {
+            "VIP": set(),
+            "PREFERENTIAL": set(),
+            "GENERAL": set(),
+        }
         for s_name, r, c in self.own_reserved_coords:
-            if s_name == section:
-                own_coords.add((r, c))
+            own_by_section[s_name].add((r, c))
 
-        # Build TTL overlay dict from active sessions
-        own_cell_ttl: Dict[tuple[int, int], int] = {}
+        # Build TTL overlay dict per section from active sessions
+        ttl_by_section: Dict[str, Dict[tuple[int, int], int]] = {
+            "VIP": {},
+            "PREFERENTIAL": {},
+            "GENERAL": {},
+        }
         for session in self.sessions.values():
             if session.state != "ACTIVE":
                 continue
             ttl_remaining = session.ttl_remaining()
             for seat in session.seats:
-                if seat.get("section") == section:
-                    own_cell_ttl[(seat["row"], seat["col"])] = ttl_remaining
+                sec = seat.get("section", "")
+                if sec in ttl_by_section:
+                    ttl_by_section[sec][(seat["row"], seat["col"])] = ttl_remaining
 
-        widget.update_grid(
-            grid, pending_coords, own_coords, own_cell_ttl=own_cell_ttl
-        )
+        for section_name, widget in self.seat_maps.items():
+            grid = self.seat_map_snapshot.get(section_name, [])
+            if not grid:
+                continue
+            widget.update_grid(
+                grid,
+                pending_by_section.get(section_name, set()),
+                own_by_section.get(section_name, set()),
+                own_cell_ttl=ttl_by_section.get(section_name, {}),
+            )
 
     def _update_reserve_button(self) -> None:
         """Update the Reserve button text to show pending selection count."""
@@ -745,9 +748,7 @@ class ConcertMainWindow(QMainWindow):
             event: The QCloseEvent from Qt.
         """
         active_sessions = [
-            tx_id
-            for tx_id, s in self.sessions.items()
-            if s.state == "ACTIVE"
+            tx_id for tx_id, s in self.sessions.items() if s.state == "ACTIVE"
         ]
         if active_sessions:
             count = len(active_sessions)
@@ -774,7 +775,6 @@ class ConcertMainWindow(QMainWindow):
 
         Ctrl+R: Trigger Reserve Selected action.
         Ctrl+Q: Close the window.
-        Tab: Cycle through section combo (VIP → PREFERENTIAL → GENERAL → VIP).
         All other keys: delegate to default handler.
 
         Args:
@@ -784,10 +784,5 @@ class ConcertMainWindow(QMainWindow):
             self._on_reserve_selected()
         elif event.key() == Qt.Key_Q and event.modifiers() & Qt.ControlModifier:
             self.close()
-        elif event.key() == Qt.Key_Tab:
-            current_idx = self.section_combo.currentIndex()
-            count = self.section_combo.count()
-            next_idx = (current_idx + 1) % count
-            self.section_combo.setCurrentIndex(next_idx)
         else:
             super().keyPressEvent(event)

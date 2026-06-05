@@ -51,6 +51,13 @@ class EventLogWidget(QTextEdit):
         """Clear all event log content."""
         self.clear()
 
+    def is_collapsed(self) -> bool:
+        """Return whether this widget is currently hidden (collapsed).
+
+        Provided for testability — the actual toggle button lives in MainWindow.
+        """
+        return self.isHidden()
+
     def append_line(self, line: str) -> None:
         """Append a raw server log line (called during log tailing).
 

@@ -19,7 +19,7 @@ QPushButton {
     background-color: #1a2a3a;
     color: #e0f0ff;
     border: 1px solid #3b4a64;
-    padding: 6px 12px;
+    padding: 4px 8px;
     border-radius: 4px;
 }
 
@@ -37,7 +37,7 @@ QLineEdit {
     background-color: #10171f;
     color: #e0f0ff;
     border: 1px solid #3b4a64;
-    padding: 4px 8px;
+    padding: 3px 6px;
     border-radius: 3px;
 }
 
@@ -57,7 +57,7 @@ QHeaderView::section {
     background-color: #1a2a3a;
     color: #9ad4d6;
     border: 1px solid #3b4a64;
-    padding: 4px;
+    padding: 2px;
 }
 
 /* ── Text Edit / Event Log ───────────────────────────────────────────────── */
@@ -84,7 +84,7 @@ QLabel#seat-legend-swatch {
 
 /* ── Seat Map Table Cell Text (TTL overlay) ──────────────────────────────── */
 QTableWidget::item {
-    font-size: 11px;
+    font-size: 9px;
 }
 
 /* ── Message Box (Close Guard Dialog) ─────────────────────────────────────── */
@@ -96,7 +96,7 @@ QMessageBox QLabel {
     color: #e0f0ff;
 }
 QMessageBox QPushButton {
-    min-width: 80px;
+    min-width: 60px;
 }
 
 /* ── Status Bar ──────────────────────────────────────────────────────────── */

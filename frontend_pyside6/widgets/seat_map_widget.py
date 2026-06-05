@@ -46,11 +46,15 @@ class SeatMapWidget(QTableWidget):
         self.section_name = section_name
         self.setHorizontalHeaderLabels([str(c) for c in range(cols)])
         self.setVerticalHeaderLabels([f"{r:02d}" for r in range(rows)])
+        header_font = QFont()
+        header_font.setPointSize(8)
+        self.horizontalHeader().setFont(header_font)
+        self.verticalHeader().setFont(header_font)
         self.cellClicked.connect(self._on_cell_clicked)
         self.setEditTriggers(QTableWidget.NoEditTriggers)
         self.setSelectionMode(QTableWidget.SingleSelection)
-        self.horizontalHeader().setDefaultSectionSize(48)
-        self.verticalHeader().setDefaultSectionSize(48)
+        self.horizontalHeader().setDefaultSectionSize(30)
+        self.verticalHeader().setDefaultSectionSize(30)
         self._pending_coords: Set[tuple[int, int]] = set()
         self._own_reserved_coords: Set[tuple[int, int]] = set()
 
@@ -95,7 +99,7 @@ class SeatMapWidget(QTableWidget):
         self._pending_coords = pending_coords
         self._own_reserved_coords = own_coords
         _ttl_font = QFont()
-        _ttl_font.setPointSize(7)
+        _ttl_font.setPointSize(6)
         for r, row_data in enumerate(grid_data):
             for c, state in enumerate(row_data):
                 item = QTableWidgetItem()
@@ -105,9 +109,7 @@ class SeatMapWidget(QTableWidget):
                 item.setData(Qt.UserRole, state)  # Store original server state
                 item.setFlags(item.flags() & ~Qt.ItemIsEditable)
                 # Tooltip: section(row,col) — STATE
-                item.setToolTip(
-                    f"{self.section_name}({r},{c}) — {display_state}"
-                )
+                item.setToolTip(f"{self.section_name}({r},{c}) — {display_state}")
                 # TTL countdown text overlay on owned cells
                 if display_state == "OWN_RESERVED":
                     ttl = own_cell_ttl.get((r, c), 0)
