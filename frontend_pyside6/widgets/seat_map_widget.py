@@ -1,9 +1,10 @@
-"""Professional seat grid with color-coded cells, tooltips, and TTL overlay.
+"""Color-coded QTableWidget seat grid with click handling.
 
-Displays seats in a grid with visually distinct colors: AVAILABLE green,
-OWN_RESERVED blue, RESERVED orange, SOLD red, PENDING purple. Features
-rounded cells, alternating row background, informative hover tooltips,
-and a readable TTL countdown overlay on owned seats.
+Displays seats in a grid with five visually distinct colors: AVAILABLE green,
+OWN_RESERVED blue, RESERVED orange, SOLD red, PENDING purple. Clicking an
+AVAILABLE seat emits a signal for the MainWindow to handle; clicking a
+non-AVAILABLE seat still emits the signal so the MainWindow can show a
+status message.
 
 Port of frontend_tui/app.py _render_seat_map() (lines 1027-1059) and
 on_data_table_cell_selected() (lines 259-301) to PySide6.
@@ -12,23 +13,14 @@ on_data_table_cell_selected() (lines 259-301) to PySide6.
 from typing import Dict, Set
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont
+from PySide6.QtGui import QBrush, QFont
 from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 
 from frontend_pyside6.models.seat_state import SEAT_COLORS
 
-# ── Tooltip state descriptions ───────────────────────────────────────────────
-_STATE_TOOLTIPS = {
-    "AVAILABLE": "Available for reservation",
-    "OWN_RESERVED": "Reserved by YOU",
-    "RESERVED": "Reserved by another user",
-    "SOLD": "Confirmed / sold",
-    "PENDING": "Selected for reservation",
-}
-
 
 class SeatMapWidget(QTableWidget):
-    """Professional seat grid for a single section (VIP/PREFERENTIAL/GENERAL).
+    """Color-coded seat grid for a single section (VIP/PREFERENTIAL/GENERAL).
 
     Emits seat_clicked(section_name, row, col, server_state) when a cell
     is clicked. The MainWindow connects to this signal to handle seat
@@ -43,7 +35,7 @@ class SeatMapWidget(QTableWidget):
     seat_clicked = Signal(str, int, int, str)  # section, row, col, state
 
     def __init__(self, section_name: str, rows: int, cols: int) -> None:
-        """Initialize the seat map grid with professional styling.
+        """Initialize the seat map grid.
 
         Args:
             section_name: Section identifier (VIP, PREFERENTIAL, or GENERAL).
@@ -53,53 +45,16 @@ class SeatMapWidget(QTableWidget):
         super().__init__(rows, cols)
         self.section_name = section_name
         self.setHorizontalHeaderLabels([str(c) for c in range(cols)])
-        self.setVerticalHeaderLabels([f"R{r}" for r in range(rows)])
-
-        # ── Header styling ────────────────────────────────────────────────
+        self.setVerticalHeaderLabels([f"{r:02d}" for r in range(rows)])
         header_font = QFont()
-        header_font.setPointSize(9)
-        header_font.setBold(True)
+        header_font.setPointSize(8)
         self.horizontalHeader().setFont(header_font)
         self.verticalHeader().setFont(header_font)
-
-        # ── Grid styling ──────────────────────────────────────────────────
         self.cellClicked.connect(self._on_cell_clicked)
         self.setEditTriggers(QTableWidget.NoEditTriggers)
         self.setSelectionMode(QTableWidget.SingleSelection)
-        self.setAlternatingRowColors(True)
-        self.setShowGrid(False)  # We use cell borders for cleaner look
-        self.horizontalHeader().setDefaultSectionSize(38)
-        self.verticalHeader().setDefaultSectionSize(34)
-        self.horizontalHeader().setMinimumSectionSize(30)
-        self.verticalHeader().setMinimumSectionSize(28)
-
-        # ── Per-section QSS for rounded cells ─────────────────────────────
-        self.setStyleSheet(
-            """
-            QTableWidget {
-                background-color: #0b1220;
-                alternate-background-color: #0f1828;
-                border: 1px solid #3b4a64;
-                border-radius: 4px;
-            }
-            QTableWidget::item {
-                padding: 2px;
-                border: 1px solid #2a3a4a;
-                border-radius: 3px;
-            }
-            QTableWidget::item:selected {
-                background-color: rgba(45, 106, 126, 0.5);
-            }
-            QHeaderView::section {
-                background-color: #1a2a3a;
-                color: #9ad4d6;
-                border: 1px solid #3b4a64;
-                padding: 2px;
-                font-weight: bold;
-            }
-        """
-        )
-
+        self.horizontalHeader().setDefaultSectionSize(30)
+        self.verticalHeader().setDefaultSectionSize(30)
         self._pending_coords: Set[tuple[int, int]] = set()
         self._own_reserved_coords: Set[tuple[int, int]] = set()
 
@@ -129,12 +84,11 @@ class SeatMapWidget(QTableWidget):
 
         Rebuilds every cell with the correct background color based on
         server state, pending selections, and own reservations. Adds
-        detailed tooltips for every cell and TTL countdown text on
-        owned cells with improved readability.
+        tooltips for every cell and TTL countdown text on owned cells.
 
         Args:
-            grid_data: 2D list of server state strings (AVAILABLE, RESERVED, ...).
-            pending_coords: Set of (row, col) tuples currently pending selection.
+            grid_data: 2D list of server state strings (AVAILABLE, RESERVED, SOLD).
+            pending_coords: Set of (row, col) tuples currently pending local selection.
             own_coords: Set of (row, col) tuples reserved by this user's session.
             own_cell_ttl: Dict mapping (row, col) to remaining TTL seconds for
                 cells owned by this user (only for ACTIVE sessions). Defaults to
@@ -144,13 +98,8 @@ class SeatMapWidget(QTableWidget):
             own_cell_ttl = {}
         self._pending_coords = pending_coords
         self._own_reserved_coords = own_coords
-
-        # ── Fonts ─────────────────────────────────────────────────────────
         _ttl_font = QFont()
-        _ttl_font.setPointSize(8)
-        _ttl_font.setBold(True)
-
-        # ── Alternating row offset starts after header ────────────────────
+        _ttl_font.setPointSize(6)
         for r, row_data in enumerate(grid_data):
             for c, state in enumerate(row_data):
                 item = QTableWidgetItem()
@@ -159,31 +108,14 @@ class SeatMapWidget(QTableWidget):
                 item.setBackground(QBrush(color))
                 item.setData(Qt.UserRole, state)  # Store original server state
                 item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                item.setTextAlignment(Qt.AlignCenter)
-
-                # ── Rich tooltip with section, row, col, and state ────────
-                tooltip_desc = _STATE_TOOLTIPS.get(display_state, display_state)
-                tooltip = (
-                    f"{self.section_name} — Row {r}, Seat {c}\n"
-                    f"State: {tooltip_desc}"
-                )
-                item.setToolTip(tooltip)
-
-                # ── TTL countdown overlay on owned cells ──────────────────
+                # Tooltip: section(row,col) — STATE
+                item.setToolTip(f"{self.section_name}({r},{c}) — {display_state}")
+                # TTL countdown text overlay on owned cells
                 if display_state == "OWN_RESERVED":
                     ttl = own_cell_ttl.get((r, c), 0)
                     if ttl > 0:
-                        # Format as minutes:seconds if >= 60s
-                        if ttl >= 60:
-                            mins = ttl // 60
-                            secs = ttl % 60
-                            item.setText(f"{mins}:{secs:02d}")
-                        else:
-                            item.setText(f"{ttl}s")
+                        item.setText(f"{ttl}s")
                         item.setFont(_ttl_font)
-                        # White text on blue for readability
-                        item.setForeground(QBrush(QColor("#FFFFFF")))
-
                 self.setItem(r, c, item)
 
     def _resolve_display_state(self, row: int, col: int, server_state: str) -> str:

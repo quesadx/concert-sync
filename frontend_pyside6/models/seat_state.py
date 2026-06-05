@@ -12,14 +12,14 @@ from PySide6.QtGui import QColor
 VISUAL_STATES = ("AVAILABLE", "OWN_RESERVED", "RESERVED", "SOLD", "PENDING")
 
 # ── Seat Map Cell Colors ──────────────────────────────────────────────────────
-# Professional, softer color palette for the cinema-style seat grid.
-# OWN_RESERVED uses teal-cyan for a confident but calm "mine" indicator.
+# Mirrors TUI _seat_cell() styles at frontend_tui/app.py lines 1001-1013,
+# adapted to the richer color palette specified in UI-SPEC §Seat Map State Colors.
 SEAT_COLORS = {
     "AVAILABLE": QColor("#4CAF50"),  # Green — available for selection
-    "OWN_RESERVED": QColor("#0D7377"),  # Teal — reserved by current user
+    "OWN_RESERVED": QColor("#2196F3"),  # Blue — reserved by current user
     "RESERVED": QColor("#FF9800"),  # Orange — reserved by another user
-    "SOLD": QColor("#D32F2F"),  # Dark red — confirmed / sold
-    "PENDING": QColor("#7B1FA2"),  # Deep purple — locally selected
+    "SOLD": QColor("#F44336"),  # Red — confirmed / permanently sold
+    "PENDING": QColor("#9C27B0"),  # Purple — locally selected, not yet reserved
 }
 
 # ── Event Log Category Colors ─────────────────────────────────────────────────
