@@ -1,94 +1,59 @@
-# ConcertSync — Project State
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: complete
+last_updated: "2026-06-05T00:54:00Z"
+progress:
+  total_phases: 1
+  completed_phases: 1
+  total_plans: 5
+  completed_plans: 5
+  percent: 100
+---
 
-**Current Phase:** Phase 6 — Instance Closure + Saturated Zone + Audit Log
-**Last Command:** `/gsd-execute 6`
+# Project State
+
 **Last Updated:** 2026-06-04
-**Status:** Phase 6 Executed ✓
 
-## Points of Progress
+Last activity: 2026-06-05 - Completed quick task 260604-wzs: GNOME Adwaita palette migration + frontend code cleanup
 
-- [x] Codebase mapped (`.planning/codebase/`)
-- [x] Project defined (`.planning/PROJECT.md`)
-- [x] Requirements defined (`.planning/REQUIREMENTS.md`)
-- [x] Roadmap created (`.planning/ROADMAP.md`)
-- [x] Phase 1: User ID + Session TTL — Executed ✓ (2 plans, 2 waves)
-- [x] Phase 2: Fix Expiration + Restart Cleanup — Executed ✓ (2 plans, 2 waves)
-- [x] Phase 3: Buy Near Expiry + Concurrent Cancellation — Executed ✓ (2 plans, 2 waves)
-- [x] Phase 4: Visual Differentiation — Executed ✓ (2 plans, 2 waves)
-   - [x] 04-01: Server-side OWN_RESERVED: SeatState enum + get_by_user_id + enriched handle_query_seat_map
-   - [x] 04-02: TUI per-state color rendering: _seat_cell() + update_cell_at() + legend update
-- [x] Phase 5: Reservation Consistency — Executed ✓ (2 plans, 2 waves)
-   - [x] 05-01: RESERVE_SELECTED handler + ConcertClient.reserve_selected()
-   - [x] 05-02: TUI pending seat selection + Reserve Pending button
-- [x] Phase 6: Closure + Saturated Zone + Audit Log — Planned ✓ (2 plans, 2 waves)
-   - [x] 06-01: Server-side shutdown cleanup + GlobalLog TID + E2E tests
-   - [x] 06-02: TUI disconnect detection + saturated zone pre-flight + E2E tests
-- [ ] Phase 7: Concurrency Robustness Review — Pending
+Previous: 2026-06-05 - Completed quick task 260604-rml: UI overhaul — numeric login, unified TTL, professional seat matrix
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-06-01)
+See: .planning/PROJECT.md (updated 2026-06-04)
 
-**Core value:** Multiple users can concurrently browse, select, and purchase concert seats without double-booking or losing reservations.
+**Core value:** Multiple concurrent users can reserve, confirm, and cancel seats without race conditions
+**Current focus:** Phase 01 — pyside6-frontend
 
-**Current focus:** Phase 6 — Instance Closure + Saturated Zone + Audit Log (Executed ✓)
+## Phase Progress
 
-## Completed Phase
+| # | Phase | Status | Plans | Progress |
+|---|-------|--------|-------|----------|
+| 1 | PySide6 Frontend | Complete | 5/5 | 100% |
 
-**Phase 4: Visual Differentiation** ✓
+## Current Phase
 
-Goal: Users can distinguish own selected seats from other users' selections
+**Phase 1:** PySide6 Frontend
+**Status:** Complete — Phase 01 finished 2026-06-04
 
-Requirements: UI-01 ✓, UI-02 ✓, UI-03 ✓
+### Quick Tasks Completed
 
-Plans: 2 (04-01 ✓, 04-02 ✓)
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260604-o6k | Fix all teacher review issues in PySide6 frontend: visual seat distinction, TTL expiration, cancel races, batch/individual consistency, session persistence, event log clarity | 2026-06-04 | 6ebf28b | [260604-o6k-fix-all-teacher-review-issues-in-pyside6](./quick/260604-o6k-fix-all-teacher-review-issues-in-pyside6/) |
+| 260604-pei | Cinema-style UI overhaul: full seat matrix, compact layout, fix ERR_INVALID_PAYLOAD reserve bug, intuitive seat picking | 2026-06-05 | 12d6c87 | [260604-pei-cinema-style-ui-overhaul-full-seat-matri](./quick/260604-pei-cinema-style-ui-overhaul-full-seat-matri/) |
+| 260604-pww | Implement Sqlite persistence across the app. Make it so when you connect with a different user id im able to know which seats are not mine, as when I do it the UI doesnt show that the selected sits are not mine (the ttl-waiting ones). And I dont want to manually type the transaction or session id. Fix that. | 2026-06-05 | 8c67d62 | [260604-pww-implement-sqlite-persistence-across-the-](./quick/260604-pww-implement-sqlite-persistence-across-the-/) |
+| 260604-qlg | Auto-load user sessions on connect via QUERY_SEAT_MAP, remove manual session reclaim | 2026-06-05 | ee954b3 | [260604-qlg-make-it-so-each-user-has-its-own-everyth](./quick/260604-qlg-make-it-so-each-user-has-its-own-everyth/) |
+| 260604-r7u | Fix per-seat TTL tracking: each reserved seat gets its own independent TTL, expired seats release individually | 2026-06-05 | 1c5db67 | [260604-r7u-when-reserving-multiple-seats-the-ttl-on](./quick/260604-r7u-when-reserving-multiple-seats-the-ttl-on/) |
+| 260604-rml | UI overhaul: numeric login, unified global TTL that resets on every reservation, professional seat matrix visualization | 2026-06-05 | 9da40fe | [260604-rml-overhaul-the-ui-to-make-it-feel-more-lik](./quick/260604-rml-overhaul-the-ui-to-make-it-feel-more-lik/) |
+| 260604-tz6 | Modern cinema theme, server dashboard UI, multi-client launchers | 2026-06-04 | 4e50190 | [260604-tz6-considering-review-by-teacher-md-polish-](./quick/260604-tz6-considering-review-by-teacher-md-polish-/) |
+| 260604-wzs | GNOME Adwaita palette migration + frontend code cleanup | 2026-06-05 | 391d72b | [260604-wzs-make-the-ui-palette-better-go-with-a-gno](./quick/260604-wzs-make-the-ui-palette-better-go-with-a-gno/) |
 
-### What was built
-- SeatState.OWN_RESERVED enum member (view-only, never stored in SeatMatrix)
-- SessionManager.get_by_user_id() — O(1) session lookup without create side effects
-- handle_query_seat_map enriched with ownership cross-reference: own RESERVED seats → "OWN_RESERVED", others' → "RESERVED"
-- _seat_cell() replacing _seat_token(): returns (token, Optional[Style]) per state
-- _render_seat_map() rewritten with per-cell styling via DataTable.update_cell_at()
-- OWN_RESERVED → teal bold "Y", RESERVED (other) → amber bold "R", SOLD → dimmed "S"
-- Legend updated: "A=AVAILABLE  R=RESERVED  Y=YOURS  S=SOLD"
-- No layout changes, no new widgets, no CSS changes (UI-03 preserved)
+## Quick Reference
 
-## Completed Phase
-
-**Phase 5: Reservation Consistency** ✓
-
-Goal: Individual mode reserves ALL selected seats, not just the last one
-
-Requirements: CON-01 ✓, CON-02 ✓, CON-03 ✓
-
-Plans: 2 (05-01 ✓, 05-02 ✓)
-
-### What was built
-- `RESERVE_SELECTED` server handler: atomically reserves a list of seats in single lock scope with all-or-nothing rollback (same lock/semaphore pattern as `RESERVE_BATCH`)
-- `ConcertClient.reserve_selected()` — client method sending the new action
-- TUI pending selection: clicking available seat toggles it in `pending_selections` (shown as `P` in muted blue) instead of immediate `RESERVE`
-- "Reserve Pending" button sends one `RESERVE_SELECTED` for all pending seats
-- Existing single-seat `RESERVE`, `RESERVE_BATCH`, and block mode completely unchanged
-
-## Completed Phase
-
-**Phase 6: Instance Closure + Saturated Zone + Audit Log** ✓
-
-Goal: Server releases seats on shutdown; TUI detects disconnection; client-side saturated zone pre-flight
-
-Requirements: CLS-01 ✓, SAT-01 ✓, SAT-02 ✓, LOG-01 ✓, LOG-02 ✓, LOG-03 ✓
-
-Plans: 2 (06-01 ✓, 06-02 ✓)
-
-### What was built
-- GlobalLog TID: Every `append()` auto-includes `[TID:{thread_id}]` — zero caller changes
-- SessionManager.get_all_active(): Safe iteration of ACTIVE sessions under lock
-- ConcertServer._release_all_sessions(): Releases ACTIVE seat states and restores semaphores in `stop()` with 0.5s drain delay
-- TUI disconnect detection: 3 consecutive query failures → "DISCONNECTED — server unreachable"; resets on reconnection
-- Saturated zone pre-flight: Reserve Pending checks seat_map_snapshot before sending; removes non-AVAILABLE seats with `[SATURATED]` warning
-- No server-side changes for saturated zone detection (SAT-02 preserved)
-- 9 E2E tests: 3 shutdown cleanup, 2 log format, 2 disconnect detection, 2 saturated zone
-
-## Next Action
-
-Phase 7 — Concurrency Robustness Review: Ready to plan.
+- **Requirements:** .planning/REQUIREMENTS.md (13 v1 requirements)
+- **Roadmap:** .planning/ROADMAP.md
+- **Codebase:** .planning/codebase/
+- **Review:** review-by-teacher.md

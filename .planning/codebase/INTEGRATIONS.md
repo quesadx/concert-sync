@@ -1,121 +1,96 @@
 # External Integrations
 
-**Analysis Date:** 2026-06-01
+**Analysis Date:** 2026-06-04
 
 ## APIs & External Services
 
-**Third-Party APIs:**
-- None detected. The project uses no external REST, gRPC, or GraphQL APIs.
+**None.** The ConcertSync system is fully self-contained. It communicates exclusively over raw TCP sockets using a custom JSON protocol (defined in `docs/protocol-contract-v1.md`). No third-party APIs, SaaS services, or external HTTP endpoints are used.
 
-**SDK/Client Libraries:**
-- None detected. No Stripe, Supabase, AWS, or other SDK dependencies.
+The system consists of:
+- **Server:** `src/server/concert_server.py` — Binds to `localhost:9999` (configurable), accepts TCP connections, spawns `TransactionalThread` per client
+- **Client:** `src/client/concert_client.py` — Opens TCP socket to server, sends/receives JSON
+- **Protocol:** JSON over TCP, with actions: `RESERVE`, `RESERVE_BATCH`, `RESERVE_SELECTED`, `CONFIRM`, `CANCEL`, `QUERY`, `QUERY_SEAT_MAP`
 
 ## Data Storage
 
 **Databases:**
-- None. All state is stored in-memory via Python data structures:
-  - `SeatMatrix` (`src/shared_resources/seat_matrix.py`) — Nested list of `SeatState` enums, protected by per-section `RLock`/`Lock`
-  - `ReservationTable` (`src/shared_resources/reservation_table.py`) — In-memory dict of `Reservation` dataclass instances, protected by `threading.Lock`
-  - `SemaphoreManager` (`src/shared_resources/semaphore_manager.py`) — Per-section `threading.Semaphore` for capacity control
+- None. All state is in-memory using Python data structures:
+  - `SeatMatrix` (`src/shared_resources/seat_matrix.py`) — 2D lists per section with `SeatState` enums
+  - `ReservationTable` (`src/shared_resources/reservation_table.py`) — `dict` mapping transaction IDs to `Reservation` dataclasses
+  - `SessionManager` (`src/server/session_manager.py`) — `dict` mapping user IDs to `UserSession` dataclasses
+  - `SemaphoreManager` (`src/shared_resources/semaphore_manager.py`) — `threading.Semaphore` per section
+  - `GlobalLog` (`src/shared_resources/global_log.py`) — Appends to `logs/system.log` on disk
+
+**Data persistence:**
+- The `GlobalLog` writes to `logs/system.log` (text file, append-only). This is the only on-disk data.
+- No database, ORM, or persistent storage layer exists. Server restart loses all reservations.
 
 **File Storage:**
-- `GlobalLog` (`src/shared_resources/global_log.py`) — Writes timestamped log entries to `logs/system.log`
-- No persistent data storage — all reservation state is ephemeral (lost on restart)
+- Local filesystem only. Logs at `logs/system.log`, TUI CSS at `frontend_tui/styles.tcss`.
 
 **Caching:**
-- None. No Redis, Memcached, or in-memory cache layer.
+- None. All state queries (QUERY, QUERY_SEAT_MAP) read directly from in-memory data structures under appropriate locks.
 
 ## Authentication & Identity
 
 **Auth Provider:**
-- None. The TCP protocol has no authentication, tokens, or identity layer. Any client that can connect to the port can issue requests.
+- Custom. No authentication provider or token system.
+- Identity is a simple `user_id` string provided by the client at connection time.
+- The TUI frontend prompts for a display name (`frontend_tui/login_screen.py`) and uses it as `user_id`.
+- Ownership checks in `TransactionalThread` (`src/server/transactional_thread.py`) compare `user_id` from request against session's `user_id` — purely string comparison.
+- No passwords, tokens, sessions (HTTP-style), or encryption.
 
 ## Monitoring & Observability
 
 **Error Tracking:**
-- None. No Sentry, Datadog, or similar service.
+- None. No Sentry, Datadog, or external error tracking service.
 
 **Logs:**
-- File-based logging via `GlobalLog` to `logs/system.log`
-- Log format: `[timestamp] [EVENT_TYPE] message`
-- Event types: `SERVER`, `THREAD`, `ERROR`, `RESERVE`, `RESERVE_BATCH`, `CONFIRM`, `CANCEL`, `EXPIRE`
+- File-based logging via `GlobalLog` (`src/shared_resources/global_log.py`)
+  - Output: `logs/system.log` (configured at init, path overridable)
+  - Format: `[ISO timestamp] [EVENT_TYPE] [TID:thread_id] message`
+  - Thread-safe via `threading.Lock`
+  - Event types logged: `SERVER`, `THREAD`, `ERROR`, `RESERVE`, `RESERVE_BATCH`, `RESERVE_SELECTED`, `CONFIRM`, `CANCEL`, `EXPIRE`, `CLEANUP`, `SHUTDOWN`
+- The TUI frontend tails this log file for a live event stream (`LogTailer` in `frontend_tui/app.py`)
+
+**Metrics:**
+- In-TUI only: sparkline charts for request/thread/error counts per tick (`frontend_tui/app.py` `_render_metrics_panels`)
 
 ## CI/CD & Deployment
 
 **Hosting:**
-- Currently no production deployment target. Designed for local execution only.
+- Local execution only. No cloud deployment or containerization detected (no Dockerfile, no Docker Compose, no Kubernetes manifests).
 
 **CI Pipeline:**
-- None detected (no `.github/workflows/` directory, no CI config files).
+- No CI pipeline detected. No GitHub Actions workflows, no CI config files in `.github/`.
+
+**Deployment scripts:**
+- `scripts/run.sh` — Multi-mode launcher: `server`, `tui`, `both`, `test`
+- `scripts/build_windows_exe.ps1` — Windows executable packaging
+- `desktop_launcher.py` — Single-process launcher embedding server + TUI
+- `main.py` — Server-only entry point
 
 ## Environment Configuration
 
 **Required env vars:**
-- None. All configuration is hardcoded in `src/utils/config.py`:
-  - `SERVER_PORT = 9999`
-  - `RESERVATION_TTL = 300`
-  - Per-section dimensions (VIP 5×10, PREFERENTIAL 10×15, GENERAL 20×20)
+- None. The application requires no environment variables.
+
+**Configuration in code:**
+- Server port: `src/utils/config.py` (`SERVER_PORT = 9999`)
+- Reservation TTL: `src/utils/config.py` (`RESERVATION_TTL = 300`)
+- Section dimensions: `src/utils/config.py` (`SECTION_CONFIG`)
 
 **Secrets location:**
-- Not applicable — no secrets, API keys, or credentials exist in the codebase.
+- No secrets. The application has no authentication, API keys, or credentials.
 
 ## Webhooks & Callbacks
 
 **Incoming:**
-- None. The server is a request-response TCP server with no webhook/callback mechanism.
+- None. TCP server listens for client connections but does not expose any webhook endpoints.
 
 **Outgoing:**
-- None. The server does not call external endpoints.
-
-## Protocol
-
-**Transport:**
-- JSON over TCP
-  - Raw TCP sockets (`socket.AF_INET`, `socket.SOCK_STREAM`)
-  - Default port: 9999
-  - Frame format: Complete JSON object per send/receive (no delimiters)
-  - UTF-8 encoding
-- Protocol version: v1.0 (documented in `docs/protocol-contract-v1.md`)
-
-**Protocol Actions:**
-| Action | Description |
-|--------|-------------|
-| `RESERVE` | Reserve single seat, returns `transaction_id` with TTL |
-| `RESERVE_BATCH` | Atomic multi-seat reservation (up to 10 seats) |
-| `CONFIRM` | Convert reservation to permanent SOLD state |
-| `CANCEL` | Release reservation, revert seats to AVAILABLE |
-| `QUERY` | Fetch seat availability counts by section |
-| `QUERY_SEAT_MAP` | Fetch full seat-state matrix |
-
-**Error Codes:**
-| Code | HTTP-like Semantics | Trigger |
-|------|-------------------|---------|
-| `ERR_INVALID_PAYLOAD` | 400 | Missing fields or unparseable JSON |
-| `ERR_INVALID_SECTION` | 400 | Section not in enum |
-| `ERR_INVALID_COORDINATES` | 400 | row/col not int or negative |
-| `ERR_SEAT_OUT_OF_BOUNDS` | 400 | row/col exceeds section bounds |
-| `ERR_INVALID_ACTION` | 400 | Unknown action |
-| `ERR_SEAT_NOT_AVAILABLE` | 409 | Seat not AVAILABLE |
-| `ERR_NO_CAPACITY` | 409 | No semaphore slots in section |
-| `ERR_TRANSACTION_NOT_FOUND` | 404 | tx_id not in table |
-| `ERR_TRANSACTION_NOT_ACTIVE` | 409 | tx_id not ACTIVE state |
-| `INTERNAL_ERROR` | 500 | Unexpected exception |
-
-## Concurrency Architecture
-
-**Synchronization primitives (all stdlib `threading`):**
-- `threading.Lock` — Reservation table, section mutexes, log mutex
-- `threading.RLock` — Per-section reentrant lock for seat matrix reads
-- `threading.Semaphore` — Per-section capacity gates
-- `threading.Condition` — Reservation table condition variable (for monitor thread notification)
-- `threading.Thread` — Listener, monitor, and transactional worker threads
-- `threading.Barrier` — Used only in race condition tests
-
-**Thread model:**
-- 1 listener thread (accepts TCP connections, spawns transactional threads)
-- 1 monitor thread (daemon, polls expired reservations every second)
-- N transactional threads (one per client connection, short-lived)
+- None. The server does not make outbound HTTP requests or call external webhooks.
 
 ---
 
-*Integration audit: 2026-06-01*
+*Integration audit: 2026-06-04*

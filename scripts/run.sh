@@ -150,6 +150,35 @@ case "$MODE" in
 
     run_python -m frontend_tui "$@"
     ;;
+  client)
+    run_python -m frontend_pyside6 --mode client "$@"
+    ;;
+  dashboard)
+    run_python desktop_launcher.py --mode dashboard "$@"
+    ;;
+  multi)
+    # Multi-client mode: start server, then launch 2 clients with delay
+    run_python main.py "$@" &
+    SERVER_PID=$!
+
+    if ! wait_for_server; then
+      printf 'error: server did not become ready on port 9999\n' >&2
+      exit 1
+    fi
+
+    printf 'Launching first client...\n'
+    run_python -m frontend_pyside6 --mode client "$@" &
+    CLIENT1_PID=$!
+    sleep 2
+
+    printf 'Launching second client...\n'
+    run_python -m frontend_pyside6 --mode client "$@" &
+    CLIENT2_PID=$!
+
+    printf 'Server + 2 clients running. Waiting for clients to exit...\n'
+    wait "$CLIENT1_PID" || true
+    wait "$CLIENT2_PID" || true
+    ;;
   test)
     ensure_package pytest
     if [[ "$USE_UV" -eq 1 ]]; then
@@ -159,7 +188,7 @@ case "$MODE" in
     fi
     ;;
   *)
-    printf 'usage: %s [server|tui|both|test] [args...]\n' "$0" >&2
+    printf 'usage: %s [server|tui|both|client|dashboard|multi|test] [args...]\n' "$0" >&2
     exit 2
     ;;
 esac

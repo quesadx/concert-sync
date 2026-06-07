@@ -1,82 +1,94 @@
 # Technology Stack
 
-**Analysis Date:** 2026-06-01
+**Analysis Date:** 2026-06-04
 
 ## Languages
 
 **Primary:**
-- Python 3.14+ — All application code (server, client, shared resources, utilities, TUI)
+- Python 3.14 - Entire codebase (server, client, TUI frontend, tests, scripts)
 
 **Secondary:**
-- Nix expression language — Dev shell in `flake.nix`
-- Shell (Bash) — Scripts in `scripts/`
+- None - The application is pure Python. (Node.js/pnpm appear in `flake.nix` only as tooling for GSD/OpenCode, not for the application.)
 
 ## Runtime
 
 **Environment:**
-- Python 3.14 (specified in `.python-version`)
-- Requires-python: `>=3.14` (in `uv.lock`)
+- Python 3.14 (pinned in `.python-version`)
+- Nix flake (`flake.nix`) provides reproducible dev environment with nixpkgs unstable
 
 **Package Manager:**
-- [uv](https://docs.astral.sh/uv/) (v1+ based on `uv.lock` revision 3)
-- Lockfile: `uv.lock` (committed, revision 3)
-- Dependency groups: `dev`, `tui` (in `pyproject.toml`)
+- uv (primary, lockfile: `uv.lock` committed)
+- pip + venv (fallback in `scripts/run.sh`)
 
 ## Frameworks
 
 **Core:**
-- No web framework — uses raw `socket` library (TCP server)
-- No async framework — threading-based concurrency via `threading.Thread`
+- None — The server uses raw `socket` (TCP) with `threading` for concurrency. No web framework, ASGI, or HTTP layer.
 
-**TUI:**
-- [Textual](https://textual.textualize.io/) >=0.70.0 — Terminal UI framework for the client frontend (`frontend_tui/`)
+**Frontend (TUI):**
+- Textual >= 0.70.0 - Terminal UI for seat reservation client (`frontend_tui/app.py`)
+  - Part of the `tui` dependency group (optional, not core)
+  - Depends on: `rich` (bundled with Textual for styling)
 
 **Testing:**
-- [pytest](https://docs.pytest.org/) >=9.0.3 — Test runner (`tests/`)
-- Config: `[tool.pytest.ini_options]` in `pyproject.toml` (pythonpath = ["."])
+- pytest >= 9.0.3 - Test runner and fixture support
+  - Config in `pyproject.toml`: `[tool.pytest.ini_options]` sets `pythonpath = ["."]`
+  - No plugins detected beyond core pytest
 
-**Dev/Lint:**
-- [black](https://black.readthedocs.io/) >=26.3.1 — Formatter (in dev deps)
-- [flake8](https://flake8.pycqa.org/) >=7.3.0 — Linter (in dev deps)
+**Build/Dev:**
+- black >= 26.3.1 - Code formatter
+- flake8 >= 7.3.0 - Linter
+- Nix (`flake.nix`) - Reproducible development shells
 
 ## Key Dependencies
 
-**Critical:**
-- `textual>=0.70.0` (`frontend_tui/app.py`) — Provides `App`, `ComposeResult`, `DataTable`, `Input`, `Select`, `Button`, `RichLog`, `Header`, `Footer`, `Static`, `Horizontal`, `Vertical`, `Binding` widgets
-- Built-in `socket` — TCP server/client communication
-- Built-in `threading` — Concurrency: `Thread`, `Lock`, `RLock`, `Semaphore`, `Condition`, `Barrier`
-- Built-in `json` — Protocol serialization
-- Built-in `uuid` — Transaction ID generation
+**Critical (application runtime):**
+- *None beyond Python standard library.* The entire server and client use only `socket`, `threading`, `json`, `uuid`, `time`, `dataclasses`, `enum`, `pathlib`, `collections`, `contextlib`, and `typing` from the standard library.
 
-**Infrastructure:**
-- `dataclasses` (stdlib) — Data models (`Reservation`, `TrackedSession`)
-- `enum` (stdlib) — Enums (`Section`, `SeatState`, `ReservationStatus`)
-- `contextlib` (stdlib) — `@contextmanager` for lock hierarchy
-- `collections.defaultdict` (stdlib) — Thread-local seat grouping
-- `pathlib.Path` (stdlib) — File path handling
+**Infrastructure (dev only):**
+- black 26.3.1 - Code formatting enforcement
+- flake8 7.3.0 - Python linting
+- pytest 9.0.3 - Test framework
+
+**TUI (optional):**
+- textual >= 0.70.0 - Terminal user interface framework
 
 ## Configuration
 
 **Environment:**
-- No `.env` files detected — no environment variable configuration
-- Server port and seat dimensions hardcoded in `src/utils/config.py`
+- No `.env` files detected
+- All configuration is in-code at `src/utils/config.py`:
+  - `SERVER_PORT = 9999` — TCP port for server
+  - `RESERVATION_TTL = 300` — Reservation timeout in seconds (5 minutes)
+  - `SECTION_CONFIG` — Seat matrix dimensions per section:
+    - VIP: 5 rows × 10 cols (50 seats)
+    - PREFERENTIAL: 10 rows × 15 cols (150 seats)
+    - GENERAL: 20 rows × 20 cols (400 seats)
 
 **Build:**
-- `pyproject.toml` — Project metadata, test config, dependency groups
-- `uv.lock` — Locked dependency versions
-- `flake.nix` / `flake.lock` — Nix dev shell (Python 3.14, uv, pytest, black, flake8, textual, opencode, gsd, pnpm)
+- `pyproject.toml` — Project metadata, dependency groups, pytest config
+- `flake.nix` + `flake.lock` — Nix development environment
+- `.python-version` — Python version pin (3.14)
+- `.gitignore` — Standard Python gitignore (venv, __pycache__, logs, etc.)
+
+**Platform Specific:**
+- `scripts/build_windows_exe.ps1` — Windows packaging (PowerShell)
+- `scripts/run.sh` — Cross-platform run script (server, tui, both, test modes)
+- `desktop_launcher.py` — Single-process launcher that runs server + TUI together
 
 ## Platform Requirements
 
 **Development:**
-- Python 3.14+
-- uv package manager (recommended)
-- Nix (optional, for `nix develop` dev shell)
+- Python 3.14 (or 3.13+ likely compatible)
+- uv package manager (recommended) or pip + venv
+- Optional: Nix with flakes enabled for `nix develop`
 
 **Production:**
-- Python 3.14+
-- Direct execution via `python main.py` or `python -m frontend_tui`
+- Python 3.14 runtime
+- Local filesystem access (for logs at `logs/system.log`)
+- No external services required — fully self-contained
+- Port 9999 available for TCP
 
 ---
 
-*Stack analysis: 2026-06-01*
+*Stack analysis: 2026-06-04*

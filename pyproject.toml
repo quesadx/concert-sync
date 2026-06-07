@@ -12,6 +12,9 @@ dev = [
     "flake8>=7.3.0",
     "pytest>=9.0.3",
 ]
+pyside6 = [
+    "pyside6>=6.8",
+]
 tui = [
     "textual>=0.70.0",
 ]

@@ -1,340 +1,215 @@
 # Codebase Concerns
 
-**Analysis Date:** 2026-06-01
-
-## Tech Debt
-
-### Dead code in `monitor_thread.py` — expiration logic unreachable
-
-**Issue:** After the early-return guard on line 45, the seat-release loop (lines 50-55) is indented at the same level as the preceding `return` statement, making the entire expiration body unreachable dead code. The variables `ordered_sections` and `seats_by_section` are also referenced without being defined in this scope — both `_group_reservation_seats_by_section()` and `_ordered_sections()` are never called by `expire_reservation()`.
-
-**Files:** `src/server/monitor_thread.py` (lines 44-55)
-
-```python
-if not reservation or reservation.state != ReservationStatus.ACTIVE:
-    return
-    # ────────────────────────────────────────────────────────────
-    # EVERYTHING BELOW IS DEAD CODE (same indent as `return`)
-    reservation.state = ReservationStatus.EXPIRED
-    for section in ordered_sections:      # ← Never defined here
-        for row, col in seats_by_section[section]:  # ← Never defined here
-            ...
-# ────────────────────────────────────────────────────────────
-# This runs regardless of the return above, but the seat-release
-# logic in the middle is skipped entirely.
-```
-
-**Impact:** Reserved seats whose TTL expires are never released back to AVAILABLE. The semaphore counter for the section is never decremented. This causes permanent seat leaks — once capacity is exhausted, no new reservations in that section are possible until the server is restarted. The `EXPIRE` log line on line 67 still fires (the second half of the method runs), reporting `seats_released:0` since `released_counts` is empty.
-
-**Fix approach:** Remove the `return` on line 46; compute `seats_by_section` and `ordered_sections` by calling `self._group_reservation_seats_by_section(reservation)` and `self._ordered_sections(...)` before the `with` block. Fix the indentation so the release body executes when the reservation is ACTIVE.
-
-### Unused methods in `SeatMatrix`
-
-**Issue:** Four methods in `SeatMatrix` are never called from any production code path:
-
-- `check_availability()` — `src/shared_resources/seat_matrix.py:25`
-- `reserve_seat()` — `src/shared_resources/seat_matrix.py:29`
-- `set_seat_state()` — `src/shared_resources/seat_matrix.py:36`
-- `get_section_counts()` — `src/shared_resources/seat_matrix.py:40`
-
-Production code directly accesses `self.server.seat_matrix.seats[section][row][col]` instead, bypassing these wrappers.
-
-**Files:** `src/shared_resources/seat_matrix.py`
-
-**Impact:** Maintenance burden — changes to state transitions must be replicated in both the direct array access and the unused helper (or the helper goes stale). 30 lines of dead code.
-
-**Fix approach:** Remove unused methods or refactor all seat state mutations to go through `SeatMatrix` methods for consistency.
-
-### Duplicate seat-counting logic
-
-**Issue:** Both `SeatMatrix.get_section_counts()` (`src/shared_resources/seat_matrix.py:40`) and `TransactionalThread._count_section_seats()` (`src/server/transactional_thread.py:476`) implement identical logic for counting `available`, `reserved`, and `sold` per section.
-
-**Files:**
-- `src/shared_resources/seat_matrix.py` (lines 40-64)
-- `src/server/transactional_thread.py` (lines 476-499)
-
-**Impact:** Changes to the state-counting logic (e.g., adding a new state enum value) must be made in two places.
-
-**Fix approach:** Delegate to `SeatMatrix.get_section_counts()` from `TransactionalThread` and remove the duplicate.
-
-### Filename typo: `lock_hierarcky.py`
-
-**Issue:** The filename contains a typo — "hierarcky" should be "hierarchy".
-
-**File:** `src/synchronization/lock_hierarcky.py`
-
-**Impact:** Referencing this module from documentation or for future contributions is error-prone. Might cause import confusion.
-
-**Fix approach:** Rename file to `lock_hierarchy.py` and update all imports in `mutex_manager.py` and test files.
-
-### No log rotation for `logs/system.log`
-
-**Issue:** `GlobalLog` (`src/shared_resources/global_log.py`) appends to `logs/system.log` without any log rotation, truncation, or size limit. Under sustained load, this file grows unbounded.
-
-**File:** `src/shared_resources/global_log.py`
-
-**Impact:** Disk space exhaustion on long-running servers.
-
-**Fix approach:** Add log rotation (e.g., `RotatingFileHandler` from stdlib, or size-based truncation after N MB).
-
-### Hardcoded port 9999
-
-**Issue:** Port 9999 is hardcoded in `main.py`, `desktop_launcher.py`, `frontend_tui/app.py`, and `scripts/run.sh`.
-
-**Files:**
-- `main.py` (line 6)
-- `desktop_launcher.py` (line 6)
-- `frontend_tui/app.py` (line 92)
-- `scripts/run.sh` (line 105)
-
-**Impact:** If port 9999 is occupied, the server fails at `bind()` with no fallback or retry mechanism.
-
-**Fix approach:** Support config via environment variable with `int(os.getenv("CONCERT_SYNC_PORT", 9999))` in `src/utils/config.py`.
-
-### No message framing in TCP protocol
-
-**Issue:** The protocol sends/receives JSON with no length prefix, delimiter, or message boundary. The server side reads exactly once from the socket (`transactional_thread.py:39`), assuming the entire JSON fits in one `recv(4096)`. TCP is a stream protocol — messages can be split across packets or coalesced.
-
-**Files:**
-- `src/server/transactional_thread.py` (line 39)
-- `src/client/concert_client.py` (lines 93-98 — client does loop correctly)
-
-**Impact:** Under load, a fragmented TCP message causes JSON parse failure on the server, returning `ERR_INVALID_PAYLOAD` to the client. If two messages arrive in the same read, the second is silently dropped.
-
-**Fix approach:** Prefix each message with a 4-byte length header (e.g., `struct.pack("!I", len(payload))`), or use a newline delimiter and read until delimiter.
+**Analysis Date:** 2026-06-04
 
 ## Known Bugs
 
-### Semaphore leak on `RESERVE` rollback race
+### RESERVE_SELECTED action blocked by protocol validator
 
-**Symptoms:** In `TransactionalThread.handle_reserve()` (lines 106-185), if `semaphore_mgr.acquire()` succeeds but `reservation_table.add_reservation()` fails, the exception handler releases the seat state (lines 172-178) AND releases the semaphore if `semaphore_acquired` is `True`. However, if `add_reservation()` throws after acquiring the semaphore but before the exception handler runs, the semaphore may not be released. The `semaphore_acquired` local variable may be out of scope or incorrectly `False` depending on exception timing.
+- Symptoms: The TUI's "Confirm Selected Seats" button sends `action: "RESERVE_SELECTED"` but the server rejects it with `ERR_INVALID_ACTION: Unknown action: RESERVE_SELECTED`.
+- Files: `src/utils/protocol_validator.py:94` (missing from `valid_actions`), `src/server/transactional_thread.py:54` (has routing), `src/client/concert_client.py:196` (sends it), `frontend_tui/app.py:767-820` (triggers it)
+- Trigger: Click available seats on the seat map, then press "Confirm Selected Seats". The request reaches the server but `validate_action()` rejects it before `handle_reserve_selected()` can process it.
+- Workaround: None. The feature is completely broken server-side.
 
-**Files:** `src/server/transactional_thread.py` (lines 143-184)
+### Individual reserve overrides session semantics
 
-**Trigger:** High concurrency where `add_reservation()` raises an unexpected exception (e.g., `KeyError` on corrupt data).
+- Symptoms: A user who has accumulated multiple seats in a session (via multiple `RESERVE` calls or a `RESERVE_BATCH`) shares the same `session_id`. When the user sends `CONFIRM` with that `session_id`, all seats are correctly confirmed atomically. However, review notes indicate confusing behavior: "si el usuario tiene varios asientos seleccionados pero confirma mediante la modalidad individual, únicamente se reserva el último asiento seleccionado." — suggesting there are two distinct reservation paths that don't compose correctly.
+- Files: `src/server/transactional_thread.py:108-187` (handle_reserve), `src/server/transactional_thread.py:190-301` (handle_reserve_batch), `src/server/session_manager.py:35-44` (get_or_create maps by user_id)
+- Trigger: User reserves seat A (gets session_id X, TTL resets), then reserves seat B (same session_id X, TTL resets again). The session now has [A, B]. Both should be confirmed or cancelled together.
 
-**Workaround:** None known. The rollback logic is in `except Exception` but references `semaphore_acquired` which may be stale.
+### Automatic expiration unreliable under evaluated conditions (PRUEBA 3)
 
-### RESERVE_BATCH single-section fallback section logic
+- Symptoms: Review documents state "El mecanismo de expiración automática no funciona correctamente bajo las condiciones evaluadas." MonitorThread polls every 1 second and calls `expire_session`, but reports indicate seats don't always release.
+- Files: `src/server/monitor_thread.py:13-75`, `src/server/session_manager.py:21-24`
+- Trigger: Unknown specific conditions; review doesn't detail the reproduction steps. The TTL check (`is_expired`) depends on `last_activity` being updated, but the session might expire while a transaction is mid-flight (the double-check inside `table_and_sections` helps but doesn't cover all races).
+- Workaround: None documented.
 
-**Symptoms:** In `handle_reserve_batch` (line 285), when a batch spans multiple sections, `primary_section` is hardcoded to `Section.VIP`. This `primary_section` is only used as a label for the reservation record — it doesn't affect seat assignment — but it creates an incorrect section attribution.
+### Cancel-while-modify errors (PRUEBA 6)
 
-**File:** `src/server/transactional_thread.py` (line 285)
+- Symptoms: "La prueba no fue aprobada debido a errores detectados durante el proceso de cancelación concurrente." — concurrent cancellation scenarios trigger errors.
+- Files: `src/server/transactional_thread.py:472-529` (handle_cancel), `tests/test_transaction_races.py:93-126` (test_cancel_vs_expire_releases_once)
+- Trigger: One client cancels a reservation while another client modifies the same seat/section concurrently. The double-check pattern (`get_by_session_id` inside the lock) protects against expire-while-cancel but may not cover all races between two clients cancelling/modifying simultaneously.
+- Workaround: None.
 
-**Trigger:** Any multi-section RESERVE_BATCH request.
+### Seats lost on client disconnect (PRUEBA 8)
 
-**Impact:** The `Reservation.section` field will be `VIP` even if the batch has no VIP seats. This is misleading for log analysis and monitoring.
+- Symptoms: "Si el usuario cierra la instancia mientras tiene asientos reservados o seleccionados, estos se pierden al volver a ingresar al sistema." The server doesn't persist sessions across client reconnects.
+- Files: `src/server/session_manager.py:30-51` (no persistence, in-memory only)
+- Trigger: User closes the TUI or loses network while having active reserved seats. On reconnect, a new `session_id` is created and old seats remain expired (released after TTL) but there's no way to reclaim them.
+- Workaround: None. Eventually the MonitorThread will release expired seats (after 300s TTL).
 
-### No thread pool — unbounded thread creation
+## Tech Debt
 
-**Symptoms:** Each client connection creates a new `TransactionalThread` via `ListenerThread.run()` without any pooling or cap.
+### ReservationTable is dead code from migration
 
-**File:** `src/server/listener_thread.py` (line 17)
+- Issue: The `ReservationTable` class in `src/shared_resources/reservation_table.py` was the original reservation tracking mechanism. The system has migrated to `SessionManager` for tracking active reservations, rendering `ReservationTable` unused by the main flow. It still exists with its own mutex and condition variable, and `cleanup_stale_reservations` in `concert_server.py:35-76` tries to clean it up at startup — but handler methods (`handle_reserve`, `handle_reserve_batch`, `handle_reserve_selected`) never add entries to it.
+- Files: `src/shared_resources/reservation_table.py` (entire file), `src/server/concert_server.py:35-76`
+- Impact: Maintenance confusion. Developers may mistakenly add entries to the table or try to use it. The `monitor_thread.py:62-75` `expire_reservation` method is marked "Legacy safety wrapper — no longer called from run()."
+- Fix approach: Remove `ReservationTable` and all references. Verify `cleanup_stale_reservations` is no longer needed (the `_release_all_sessions` method covers shutdown cleanup via SessionManager).
 
-**Trigger:** Attacker or high-load scenario with many concurrent connections.
+### Code duplication between handle_reserve_batch and handle_reserve_selected
 
-**Impact:** Thread count grows linearly with connections, leading to memory exhaustion, GIL contention, and eventual `OSError: [Errno 11] Resource temporarily unavailable`. A DoS vector.
+- Issue: `handle_reserve_batch` (`transactional_thread.py:190-301`) and `handle_reserve_selected` (`transactional_thread.py:304-405`) are nearly identical — both parse seats from a list, group by section, acquire locks in hierarchy order, validate availability, mark RESERVED, acquire semaphore slots, append to session, reset TTL, and respond. The only difference is the action name logged.
+- Files: `src/server/transactional_thread.py:190-405` (~215 lines of duplicated logic)
+- Impact: Any bug fix or change must be applied in both places. Drift risk — code in one handler may diverge from the other.
+- Fix approach: Extract shared reservation logic into a single `_reserve_multiple_seats(request, action_name)` method. Both handlers delegate to it with a different `action_name` string.
 
-### Server socket backlog is hardcoded to 5
+### Large files with mixed responsibilities
 
-**Issue:** `self.server_socket.listen(5)` in `src/server/concert_server.py:32` limits the listen backlog to 5 connections.
+- Issue: `frontend_tui/app.py` (1126 lines) and `src/server/transactional_thread.py` (625 lines) are the largest files and mix multiple concerns.
+  - `app.py`: UI composition, event handling, threading (worker threads), network client calls, data tracking, metrics/sparklines, log tailing, and seat map rendering — all in one class.
+  - `transactional_thread.py`: JSON protocol handling, request routing, all 6 action handlers, lock orchestration, rollback logic, error handling, seat grouping utilities.
+- Files: `frontend_tui/app.py`, `src/server/transactional_thread.py`
+- Impact: Hard to test individual components. Changes ripple unpredictably. New contributors struggle to navigate.
+- Fix approach: For `app.py`, extract workers into a `tui_workers.py` or similar; extract data models (`TrackedSession`, `LogTailer`) to a `tui_models.py`. For `transactional_thread.py`, extract each handler into its own method or delegate class.
 
-**File:** `src/server/concert_server.py` (line 32)
+### Misspelled filename
 
-**Impact:** Under high concurrency, clients will receive `Connection refused` even when the server could theoretically handle the load, because the kernel's accept queue overflows.
+- Issue: `src/synchronization/lock_hierarcky.py` is misspelled (should be `lock_hierarchy.py`).
+- Files: `src/synchronization/lock_hierarcky.py`
+- Impact: Confusing to find/search. Type-checking and IDE navigation may stumble.
+- Fix approach: Rename to `lock_hierarchy.py` and update all imports (`src/synchronization/mutex_manager.py:3`).
 
-### Direct access to `Semaphore._value` in tests
+### No message framing in TCP protocol
 
-**Issue:** Tests in `test_transaction_races.py` and `concurrent_tests.py` access `threading.Semaphore._value`, a private implementation detail.
-
-**Files:**
-- `tests/test_transaction_races.py` (lines 73, 114)
-- `tests/concurrent_tests.py` (line 62)
-
-**Risk:** `_value` is not part of Python's public API and may change between CPython versions (3.14 is being used per `.python-version`). The test will silently break or produce wrong results on alternate Python implementations (PyPy, Jython, etc.).
+- Issue: The client reads from the socket in a loop until no more data arrives (`concert_client.py:94-99`). There's no length prefix, delimiter, or message boundary marker. If the server ever multiplexed multiple responses on a single connection, the client would concatenate them into one malformed JSON string.
+- Files: `src/client/concert_client.py:94-101`, `src/server/transactional_thread.py:38-45`
+- Impact: Currently masked because each request opens a new TCP connection. If connection pooling or keep-alive is ever added, this will break.
+- Fix approach: Add a length-prefix framing (e.g., 4-byte big-endian length followed by JSON payload), or use a newline delimiter with `makefile()`.
 
 ## Security Considerations
 
-### No authentication or authorization
+### No user authentication or identity verification
 
-**Risk:** Any client on the network can connect to the TCP port and reserve/cancel/confirm seats. No identity, API keys, or session tokens are required.
+- Risk: `user_id` is a plain string sent in every request. Any client can claim any `user_id`. An attacker can reserve seats under another user's ID, confirm/cancel their reservations, or spam fake reservations that block legitimate users.
+- Files: `src/server/transactional_thread.py:345-350` (validator only checks presence, not authenticity), `frontend_tui/login_screen.py:26-29` (just collects a display name), `src/client/concert_client.py:70-74` (user_id is a constructor parameter)
+- Current mitigation: None. The system relies on honest clients.
+- Recommendations: Add at minimum a server-assigned session token on first connect. For production, integrate OAuth2 or JWT-based authentication.
 
-**Files:** All `src/server/` files.
+### Connectionless identity enables session theft
 
-**Current mitigation:** Only `listen(5)` with no `bind()` to external interfaces — default is `localhost` in `main.py`. But `ConcertClient` constructor defaults to `localhost` and the server accepts any interface if `host` is changed.
+- Risk: Since `user_id` is the only identity, an attacker knowing another user's `user_id` can call `CONFIRM` with the stolen `transaction_id` to confirm their seats, or `CANCEL` to release them.
+- Files: `src/server/transactional_thread.py:416-469` (handle_confirm checks `session.user_id != user_id` but user_id is self-reported)
+- Current mitigation: The `handle_confirm` ownership check compares the request's `user_id` against the session's stored `user_id`. Both are self-reported strings, so an attacker simply needs to know (or guess) the target's `user_id`.
+- Recommendations: Assign a random secret token per session that must accompany CONFIRM/CANCEL requests. Do not trust client-provided identity.
 
-**Recommendations:** Add token-based authentication for all mutating actions (RESERVE, CONFIRM, CANCEL). At minimum, document that the server must be firewalled.
+### Error responses expose internal state to clients
 
-### No input sanitization beyond JSON validation
-
-**Risk:** The `protocol_validator.py` validates types and ranges, but seat data is stored in-memory as native Python objects. A crafted JSON payload with extremely nested arrays or huge numeric values could cause memory exhaustion.
-
-**Files:** `src/utils/protocol_validator.py`
-
-**Current mitigation:** `recv(4096)` buffer limits the raw input to 4KB.
-
-**Recommendations:** Add explicit maximum JSON depth and size limits; reject payloads exceeding 4096 bytes before parsing.
-
-### No TLS/SSL encryption
-
-**Risk:** All communication is plain TCP. Credentials (if added later) and transaction data are sent in cleartext.
-
-**Current mitigation:** Default `localhost` binding limits exposure.
-
-**Recommendations:** Wrap socket with SSL context for non-localhost deployments.
+- Risk: Some error messages expose internal implementation details (e.g., seat state values, expected vs actual counts, section names with coordinates). While not a critical vulnerability, this aids attackers probing the system.
+- Files: `src/utils/error_responses.py:144-178`
+- Current mitigation: The protocol-contract intentionally provides descriptive error codes for debuggability. This is a design trade-off for a system that's academic/demo in nature.
 
 ## Performance Bottlenecks
 
-### Single global `MutexManager.table()` lock
+### Global table_and_sections lock serializes all mutations
 
-**Problem:** All CONFIRM/CANCEL/RESERVE_BATCH operations acquire the reservation table lock (`mutex_table = threading.Lock()`) before acquiring section locks. This serializes all transactional operations through a single global lock, limiting throughput even when operations target different sections.
+- Problem: `MutexManager.table_and_sections()` acquires the reservation table mutex AND all requested section mutexes simultaneously. While section locks are ordered (preventing deadlock), the table-level lock serializes ALL reserve/confirm/cancel operations — even for unrelated sections.
+- Files: `src/synchronization/mutex_manager.py:28-31`, `src/synchronization/lock_hierarcky.py:10-23`
+- Cause: The `table()` context manager acquires `reservation_table.mutex_table` before acquiring section locks. Every transactional operation goes through this path.
+- Improvement path: The table lock is redundant since session operations use `session_manager._lock` directly. Remove the table lock from `table_and_sections` or scope it only to operations that actually read/write the reservation table (which is currently dead code).
 
-**Files:** `src/synchronization/mutex_manager.py` (lines 28-31) and `src/shared_resources/reservation_table.py` (line 22)
+### One-socket-per-request connection model
 
-**Cause:** The `table_and_sections()` context manager acquires `table()` before `sections()`. Every mutating operation uses this pattern, creating a global bottleneck.
+- Problem: Each `concert_client.send_request()` creates a new TCP socket, connects, sends, receives, and closes. The TUI calls `query()` + `query_seat_map()` every second — that's 2 new connections per second per client.
+- Files: `src/client/concert_client.py:91-99`
+- Cause: Simplicity of implementation. The protocol contract assumes one JSON object per connection.
+- Improvement path: Implement connection pooling or keep-alive with proper message framing (see Tech Debt: No message framing).
 
-**Improvement path:** Restructure the locking strategy so table operations (create/delete reservation) don't need to block concurrent operations on unrelated sections. A striped lock or per-section reservation tables would reduce contention.
+### Sequential semaphore acquisition in batch reserve
 
-### Per-client socket creates one thread
-
-**Problem:** Each client connection creates a dedicated thread (`TransactionalThread`). For short-lived operations (single RESERVE/CONFIRM), the thread creation/teardown overhead exceeds the actual work.
-
-**Files:**
-- `src/server/listener_thread.py` (line 17)
-- `src/server/transactional_thread.py`
-
-**Improvement path:** Use a thread pool (`concurrent.futures.ThreadPoolExecutor`) with a fixed max size to reuse threads and cap resource usage.
-
-### Monitor thread polls every second
-
-**Problem:** `MonitorThread.run()` calls `time.sleep(1)` and iterates all reservations. For large reservation tables, this one-second scan creates lock contention on `mutex_table`.
-
-**File:** `src/server/monitor_thread.py` (line 15)
-
-**Improvement path:** Use a `threading.Condition.wait(timeout=1)` with notification from `add_reservation()` to avoid busy-waiting. Only scan reservations that are near their TTL.
+- Problem: `handle_reserve_batch` acquires semaphore slots one at a time in a loop (`for _ in range(requested_count): acquire()`). If 10 seats are requested and the 9th fails, the other 8 were already acquired and must be rolled back. The acquire is also non-blocking, so partial failures are common under contention.
+- Files: `src/server/transactional_thread.py:260-277`
+- Cause: Python's `threading.Semaphore` doesn't support `acquire(n)` with timeout. The semaphore manager wraps individual semaphore instances.
+- Improvement path: Replace `threading.Semaphore` with `threading.BoundedSemaphore` and implement a `try_acquire_multiple` method that checks capacity atomically before acquiring.
 
 ## Fragile Areas
 
-### `TransactionalThread` — error handling layer violation
+### Session TTL reset on every reserve extends lifetime arbitrarily
 
-**Files:** `src/server/transactional_thread.py`
+- Files: `src/server/session_manager.py:20-27`, `src/server/transactional_thread.py:157,283,389`
+- Why fragile: The `reset_ttl()` call sets `last_activity = time.time()` on every `RESERVE`/`RESERVE_BATCH`/`RESERVE_SELECTED`. A user who reserves one seat every 4.5 minutes (TTL is 300s) can keep a session alive indefinitely, holding seats hostage. Review PRUEBA 4 notes this: "el TTL se maneja individualmente por asiento y no como parte integral de una reserva o sesión de selección."
+- Safe modification: Consider a hard session cap (e.g., 5 minutes from session creation, regardless of activity) or per-seat independent TTLs.
+- Test coverage: `tests/test_transaction_races.py` tests race conditions between expire and confirm/cancel, but doesn't test the indefinite extension scenario.
 
-**Why fragile:** The `run()` method (lines 37-77) has a single `try/except Exception` around the entire request lifecycle, followed by `error_internal(str(e))`. Internal error messages containing stack trace fragments (e.g., `"KeyError: 'seats'"`) are sent directly to the client. The `handle_reserve()` method has a separate `try/except` that duplicates rollback logic. Maintaining two layers of exception handling is error-prone — changes to seat state transitions must be reflected in both the happy path and the rollback path.
+### TUI session tracking unbounded and desynced from server
 
-**Test coverage:** `test_deterministic_errors.py` covers error response structures but does not test full-stack error paths (e.g., server crash behavior, partial state corruption recovery).
+- Files: `frontend_tui/app.py:104,549-565`
+- Why fragile: The TUI's `self.sessions` dict grows without bound as sessions are added. Expired sessions are marked "EXPIRED" but never removed. The TUI tracks TTL using `created_at` (when the TUI received the response), while the server uses `last_activity` (reset on each operation). This causes the TUI to show sessions as expired while the server still considers them active.
+- Safe modification: Cap the tracked sessions at a maximum (e.g., 100) and evict oldest non-ACTIVE entries. Periodically sync TTL from server instead of tracking independently.
+- Test coverage: No dedicated tests for TUI session tracking logic.
 
-**Safe modification:** Always update both the happy-path and exception-handler paths when changing seat state management. Add dedicated error-path tests for each handler.
+### Shutdown doesn't wait for in-flight TransactionalThreads
 
-### `monitor_thread.py` — dead code expiration (see Tech Debt #1)
+- Files: `src/server/concert_server.py:140-161`
+- Why fragile: `stop()` calls `server_socket.close()`, sleeps 0.5s, releases sessions, then joins listener/monitor threads with 2s timeout. Running `TransactionalThread` instances (spawned by the listener) may be in the middle of a critical section. Their sockets may be closed under them, but they hold locks acquired via `table_and_sections`. If a transaction is mid-flight, the locks are held until the thread's context manager exits — but the server process may terminate before that.
+- Safe modification: The listener should track spawned threads and wait for them to complete (with a reasonable timeout) before releasing sessions. Alternatively, use a `threading.Event` shutdown flag that TransactionalThreads check before acquiring locks.
+- Test coverage: No test for shutdown-during-active-transaction scenario.
 
-**Files:** `src/server/monitor_thread.py`
+### Concurrent session access after removal
 
-**Why fragile:** The core expiration logic is entirely dead code. Any fix requires rewriting the entire method's control flow. The `released_counts` defaultdict pattern and the `_group_reservation_seats_by_section` / `_ordered_sections` helper are already correct and well-tested — they just need to be called.
-
-**Test coverage:** Race tests (`test_transaction_races.py`) test expire-vs-confirm and expire-vs-cancel scenarios. These tests call `monitor_thread.expire_reservation(tx_id)` directly. If the dead-code bug is fixed, these tests provide good regression coverage. However, they currently pass despite the bug because they check seat states post-expiration and the test expectations may not catch the failure.
-
-### `SeatMatrix` — State modified via direct array access
-
-**Files:** `src/shared_resources/seat_matrix.py` and `src/server/transactional_thread.py`
-
-**Why fragile:** Seat state is mutated via `self.server.seat_matrix.seats[section][row][col] = SeatState.RESERVED` throughout `transactional_thread.py`. This bypasses any invariant checks, logging, or guards that could be centralized in `SeatMatrix`. Adding a new state (e.g., `HELD`) requires finding all direct assignments across multiple methods.
-
-**Safe modification:** Route all state mutations through `SeatMatrix.set_seat_state()` or similar method that enforces valid state transitions.
-
-### `ConcertClient` — error/failure exception mapping
-
-**Files:** `src/client/concert_client.py`
-
-**Why fragile:** The `ERROR_CODE_TO_EXCEPTION` mapping (lines 62-67) maps error codes to specific exception classes. If a new error code is added to `ErrorCode` class but not mapped here, the client raises the generic `ServerFailureError` instead of the specific exception. Callers catching specific exceptions (e.g., `SeatNotAvailableError`) will silently miss the new code.
-
-**Test coverage:** `test_reserve_batch.py` tests use `send_request()` directly and check response status rather than relying on exception-based API (`reserve_seat()`, `confirm()`). The higher-level client methods (`reserve_seat()`, `confirm()`) are tested only in `test_transaction_idempotency.py` and `test_transaction_races.py`.
+- Files: `src/server/session_manager.py:71-73`, `src/server/monitor_thread.py:50`, `src/server/transactional_thread.py:459`
+- Why fragile: After `session_manager.remove(user_id)` is called (by expire or confirm), a concurrent operation that already fetched the session object (via `get_by_session_id`) may still hold a reference to the removed `UserSession` dataclass. The session's `.seats` list and `.state` could be accessed after removal. This is typically safe because the removal makes future lookups return `None`, and held references remain valid Python objects — but the data they reference (seat coordinates) may have been released.
+- Safe modification: Add a `_removed` flag to `UserSession` and check it before operating on the session. Or stale reference checks after each lock acquisition.
+- Test coverage: `tests/test_transaction_races.py` covers the double-check pattern but doesn't specifically test stale references.
 
 ## Scaling Limits
 
-### Maximum seating capacity
+### Semaphore capacity is fixed at section size
 
-**Current capacity:**
-- VIP: 5 rows × 10 cols = 50
-- PREFERENTIAL: 10 rows × 15 cols = 150
-- GENERAL: 20 rows × 20 cols = 400
-- **Total: 600 seats**
+- Current capacity: VIP=50, PREFERENTIAL=150, GENERAL=400 (configured in `src/utils/config.py`). The semaphore is initialized to `rows * cols` — i.e., every seat can be reserved concurrently.
+- Limit: Under high load with all seats reserved but not confirmed, new RESERVE attempts fail immediately. The semaphore blocks further reservations until seats are confirmed (moving to SOLD, not counted against semaphore) or released.
+- Scaling path: The semaphore capacity could be set higher than physical seats (allowing overbooking), but this would require additional logic to prevent overselling at confirm time. Currently, the semaphore acts as a reservation-buffer limiter, which is correct for the current design.
 
-**Limit:** Section dimensions are hardcoded in `src/utils/config.py` (line 5-7). Scaling beyond 600 seats requires both config changes and verification that `Section` enum values handle the hierarchy correctly. The lock-hierarchy order relies on `Section.value` (0=VIP, 1=PREF, 2=GEN), so adding sections changes lock ordering.
+### In-memory state only — no persistence
 
-**Scaling path:** Define sections in external config (JSON/YAML) instead of Python enums. Use a lock hierarchy based on section name hash rather than ordinal value.
-
-### Maximum concurrent connections
-
-**Current capacity:** Limited by thread count (one thread per connection) and listen backlog of 5 (`src/server/concert_server.py:32`).
-
-**Limit:** At ~100 concurrent connections, thread overhead becomes significant. At ~1000, OS thread limits are hit (`ulimit -u` typically 4096).
+- Current capacity: All data (sessions, seat matrix, reservations) lives in Python objects in the single server process. No database, no file persistence (except logs).
+- Limit: Server restart loses all state. All active sessions, reserved seats, and confirmed (SOLD) seats are reset. The `_cleanup_stale_reservations` startup method tries to recover from the reservation table, but since the table is dead code, cleanup is effectively a no-op.
+- Scaling path: Add SQLite or file-based persistence for the seat matrix state at minimum. Use WAL mode for concurrent reads during persistence writes.
 
 ## Dependencies at Risk
 
-### `textual` for TUI frontend
+### Textual (TUI framework)
 
-**Risk:** The TUI frontend depends on `textual>=0.70.0` (specified as a separate `tui` dependency group in `pyproject.toml:16`). The production server (`main.py`) has no TUI dependency and runs fine without it. However, `desktop_launcher.py` imports both `ConcertServer` and `ConcertTextualApp`, making it dependent on `textual`.
+- Risk: The TUI depends on `textual>=0.70.0` (in `pyproject.toml:16`). Textual is actively developed and has frequent breaking changes between minor versions. The codebase pins to a minimum version (`>=0.70.0`) rather than a lock range, meaning a future `uv sync` could pull a breaking Textual update.
+- Impact: TUI breaks on startup or has visual/behavioral regressions after dependency update.
+- Migration plan: Pin to a specific version range (e.g., `textual>=0.70.0,<1.0.0`) and test upgrades explicitly before accepting them. The `uv.lock` file does lock the current version but is git-committed, meaning collaborators get the same version. The risk is on fresh installs where `uv.lock` is regenerated.
 
-**Impact:** Workspaces without the TUI dependency cannot run `desktop_launcher.py`.
+### No type checker configured
 
-**Migration plan:** Document the separate dependency groups. Consider making `textual` optional via lazy import in `desktop_launcher.py`.
-
-### `pyinstaller` for Windows builds (build-time only)
-
-**Risk:** The Windows build script (`scripts/build_windows_exe.ps1`) uses PyInstaller, which is known to have compatibility issues with Python 3.14+. The script is not tested in CI.
-
-**Impact:** Windows distribution builds may fail with newer Python versions.
-
-## Missing Critical Features
-
-### No data persistence
-
-**Problem:** All seat state, reservation table, and transaction history is in-memory. Server restart loses all data. There is no recovery mechanism.
-
-**Blocks:** Production deployment where seat assignments must survive restarts. Any server crash during a CONFIRM operation means that seat's revenue is lost.
-
-### No idempotency for RESERVE and RESERVE_BATCH
-
-**Problem:** Per the protocol contract, `RESERVE` and `RESERVE_BATCH` are NOT idempotent. If a client sends a RESERVE, receives a timeout, and retries, the second request creates a duplicate reservation for the same seat. The protocol contract explicitly states RESERVE is not idempotent, but this means clients must implement their own deduplication.
-
-**Files:** `docs/protocol-contract-v1.md` (lines 47-48)
-
-### No health-check or monitoring endpoint
-
-**Problem:** There is no endpoint to check server health, thread counts, or seat capacity without querying seat data. No Prometheus metrics or structured logging for observability platforms.
+- Risk: The project uses type hints (`Optional`, `List`, `Dict`, `Tuple` from `typing`) but has no mypy or pyright configuration. There's no type checking in CI or pre-commit hooks.
+- Impact: Type errors can go undetected. The `Reservation.seats: list` field (no generic parameter) in `reservation_table.py:13` would be flagged by a strict type checker. Several `# type: ignore` comments would be necessary for the semaphore `._value` access used in tests.
+- Migration plan: Add a `mypy.ini` or `pyproject.toml [tool.mypy]` section. Start with loose settings and gradually tighten.
 
 ## Test Coverage Gaps
 
-### Expiration logic untested
+### Minimal TUI test coverage
 
-**What's not tested:** The actual seat-release behavior of `expire_reservation()` is tested via race-condition tests (`test_transaction_races.py`) but the core expiration logic is dead code (see Tech Debt #1). No test directly calls the method and verifies seat states change from RESERVED to AVAILABLE.
+- What's not tested: The `frontend_tui/` package has only one test file (`tests/test_tui_seat_map.py`, 160 lines) covering seat map rendering with mocked widgets. The other ~1100 lines of `app.py` (worker threads, network client calls, session tracking, event handling, button wiring, log tailing, metrics) have zero automated tests.
+- Files: `frontend_tui/app.py` (1126 lines), `frontend_tui/login_screen.py` (33 lines)
+- Risk: Visual regressions, button wiring errors, threading bugs in worker patterns go undetected.
+- Priority: Medium (the TUI is the primary user interface).
 
-**Files:** `tests/test_transaction_races.py`, `tests/test_transaction_idempotency.py`
+### No shutdown-during-transaction tests
 
-**Risk:** The dead code bug in `monitor_thread.py` was not caught by existing tests. When fixed, the tests may need updating to reliably detect correct behavior.
+- What's not tested: Server shutdown while TransactionalThreads are mid-execution. No test verifies that locks are released, sockets are properly closed, and no seat state is corrupted.
+- Files: `src/server/concert_server.py:140-161`
+- Risk: Data corruption on server restart. Seats may remain in RESERVED state permanently if the shutdown doesn't properly release them.
+- Priority: High.
 
-**Priority:** High
+### No TTL indefinite extension test
 
-### Error handler paths untested
+- What's not tested: A user repeatedly reserving seats to extend TTL beyond the configured 300s. The `is_expired` property uses `last_activity` which resets on every operation.
+- Files: `src/server/session_manager.py:21-24`
+- Risk: Resource starvation — a user can hold seats indefinitely.
+- Priority: Medium.
 
-**What's not tested:** The rollback logic in `handle_reserve()` exception handler (lines 165-185), `handle_reserve_batch()` rollback paths (lines 262-269, 292-302), and the main `run()` error path (lines 66-72) have no dedicated tests.
+### No RESERVE_SELECTED end-to-end test
 
-**Files:** `src/server/transactional_thread.py`
-
-**Risk:** A change to the happy path that breaks rollback logic will not be caught.
-
-**Priority:** Medium
-
-### TUI frontend untested
-
-**What's not tested:** The entire `frontend_tui/` module has zero tests. Event handlers, state management, and thread safety of the TUI are untested.
-
-**Files:** `frontend_tui/app.py`, `frontend_tui/__main__.py`
-
-**Risk:** UI bugs during seat selection, TTL display, or concurrent state updates are not caught.
-
-**Priority:** Low
+- What's not tested: The `RESERVE_SELECTED` action end-to-end (client -> validator -> handler). Since the validator blocks this action, no test exercises the full path. The `test_reserve_batch.py` tests use `RESERVE_BATCH`, not `RESERVE_SELECTED`.
+- Files: `src/server/transactional_thread.py:304-405`, `src/utils/protocol_validator.py:94`
+- Risk: The feature is broken in production (see Known Bugs).
+- Priority: High (must fix the validator before testing the handler).
 
 ---
 
-*Concerns audit: 2026-06-01*
+*Concerns audit: 2026-06-04*

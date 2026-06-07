@@ -1,98 +1,97 @@
 # Testing Patterns
 
-**Analysis Date:** 2026-06-01
+**Analysis Date:** 2026-06-04
 
 ## Test Framework
 
 **Runner:**
-- pytest >=9.0.3
-- Config: `[tool.pytest.ini_options]` in `pyproject.toml` sets `pythonpath = ["."]` so `src.*` imports resolve correctly
+- pytest v9.0.3
+- Config: `pyproject.toml` under `[tool.pytest.ini_options]` with `pythonpath = ["."]`
+- No additional pytest plugins detected
+- No `pytest.ini`, `conftest.py`, or `tox.ini` files found — all configuration in `pyproject.toml`
 
 **Assertion Library:**
-- Built-in `assert` statements (no separate assertion library)
+- pytest built-in `assert` statements (no third-party assertion library)
+- `pytest.raises()` for exception testing
 
 **Run Commands:**
 ```bash
-uv run pytest                          # Run all tests
-uv run pytest -v                       # Verbose
-uv run pytest tests/test_file.py       # Single test file
-uv run pytest -k "test_name"           # Filter by name
-uv run pytest -x                       # Stop on first failure
-uv run pytest --tb=short               # Short traceback
+pytest                          # Run all tests (from project root)
+pytest tests/                   # Run all tests
+pytest tests/test_phase1_e2e.py # Run specific test file
+pytest -v                       # Verbose output
+pytest -x                       # Stop on first failure
 ```
-Or via the convenience script:
-```bash
-./scripts/run.sh test                  # Run all tests
-./scripts/run.sh test -v -k "batch"   # With pytest args
-```
+
+**Coverage:**
+- No coverage tool installed (no `pytest-cov`, `coverage.py`, or coverage configuration detected)
+- `.coverage` and `coverage.xml` are in `.gitignore` but no coverage setup currently in use
 
 ## Test File Organization
 
 **Location:**
-- All tests live in `tests/` directory (separate from source, not co-located)
-- No `__init__.py` in `tests/` — pytest discovers files by naming convention
+- All tests live in the `tests/` directory at project root — separate from source (not co-located)
+- Tests mirror the project structure loosely but use descriptive `test_<feature>.py` names
 
 **Naming:**
-- Test files: `test_<feature>.py` — e.g., `test_protocol_contract.py`, `test_reserve_batch.py`, `test_transaction_idempotency.py`, `test_deterministic_errors.py`, `test_query_atomicity.py`, `test_query_seat_map.py`, `test_lock_hierarchy_core.py`, `test_transaction_races.py`, `concurrent_tests.py`
-- Note: `concurrent_tests.py` does NOT follow the `test_` prefix convention — it is a standalone script with `if __name__ == "__main__":` and is NOT auto-discovered by pytest
+- Test files: `test_<feature>.py` — e.g., `test_phase1_e2e.py`, `test_protocol_contract.py`, `test_lock_hierarchy_core.py`
+- Test classes: `Test<PascalCase>` — e.g., `TestPhase1SessionTTL`, `TestErrorResponseStructure`, `TestReserveBatchProtocolValidation`
+- Test methods: `test_<behavior>()` — e.g., `test_client_accepts_user_id`, `test_reserve_returns_session_id`, `test_valid_reserve_batch_single_seat`
 
 **Structure:**
 ```
 tests/
-├── test_protocol_contract.py      # Request/response schema validation
-├── test_deterministic_errors.py   # Error code determinism & structure
-├── test_reserve_batch.py          # Batch reserve atomicity & protocol
-├── test_transaction_idempotency.py # Confirm/cancel/expire lifecycle
-├── test_transaction_races.py      # Concurrent confirm vs expire races
-├── test_query_atomicity.py        # QUERY invariants under concurrency
-├── test_query_seat_map.py         # Seat map query lifecycle
-├── test_lock_hierarchy_core.py    # Lock ordering/deadlock prevention
-└── concurrent_tests.py            # Stress test (not auto-discovered)
+├── test_phase1_e2e.py              # Phase 1: User ID + Session-Based TTL
+├── test_phase2_e2e.py              # Phase 2: expire_reservation fix + startup cleanup
+├── test_phase3_e2e.py              # Phase 3: Buy Near Expiry + Concurrent Cancellation
+├── test_phase6_e2e.py              # Phase 6: Instance Closure + Saturated Zone + Audit Log
+├── test_protocol_contract.py       # Request/Response JSON schema validation
+├── test_deterministic_errors.py    # Error code correctness and consistency
+├── test_reserve_batch.py           # RESERVE_BATCH atomicity and edge cases
+├── test_lock_hierarchy_core.py     # Lock ordering and mutex manager
+├── test_transaction_idempotency.py # Confirm/Cancel idempotency guarantees
+├── test_transaction_races.py       # CONFIRM vs EXPIRE concurrency races
+├── test_query_atomicity.py        # QUERY snapshot consistency
+├── test_query_seat_map.py         # QUERY_SEAT_MAP correctness
+├── test_tui_seat_map.py           # TUI seat map rendering (unit tests with mocks)
+├── concurrent_tests.py            # Stress/concurrency tests with invariants
 ```
 
 ## Test Structure
 
 **Suite Organization:**
-Tests are organized using classes that group related tests. Each class focuses on one aspect of the feature:
-
 ```python
-class TestReserveBatchAtomicity:
-    """Verify all-or-nothing semantics for batch reserves."""
-    
-    def test_all_seats_available_reserves_all(self, concert_server):
-        """When all seats available, all should be reserved."""
-        client = ConcertClient('localhost', concert_server.port)
-        response = client.send_request({
-            "action": "RESERVE_BATCH",
-            "seats": [{"section": "VIP", "row": 0, "col": 0}, ...]
-        })
-        assert response["status"] == "SUCCESS"
-        assert "transaction_id" in response
+import pytest
 
-    def test_one_seat_unavailable_reserves_none(self, concert_server):
-        """When any seat unavailable, no seats should be reserved."""
-        # ... test body ...
+from src.module import SomeClass
+
+
+class TestFeatureName:
+    """Tests for specific feature."""
+
+    def test_behavior_description(self):
+        """What this test validates — single-line docstring."""
+        # Arrange
+        obj = SomeClass()
+
+        # Act
+        result = obj.method()
+
+        # Assert
+        assert result == expected
 ```
 
 **Patterns:**
-- Class name: `Test<Feature><Aspect>` — `TestRequestJsonParsing`, `TestErrorResponseStructure`, `TestReserveBatchProtocolValidation`
-- Test method name: `test_<condition_or_behavior>` — `test_valid_json_object`, `test_missing_section`, `test_batch_ttl_field_in_response`
-- Each test has a one-line docstring explaining what it validates
-- Section comments as visual delimiters: `# =========================================`
+- Classes used to group related tests — each class tests one feature or concern
+- Docstrings on every test method describing what is being validated
+- `# Arrange / Act / Assert` sections commonly used but not strictly enforced
+- Tests are independent — each test starts its own server instance on a random port
 
-**Setup/Teardown:**
-- `@pytest.fixture` for server lifecycle
-- No `setup_method`/`teardown_method` used
-- Server is started in fixture, yielded, then `.stop()` called in teardown
-
-## Fixtures
-
-**Two fixture patterns exist — use the second one (cleaner):**
-
-Pattern 1 — Tuple fixture (used in older tests: `test_transaction_idempotency.py`, `test_query_seat_map.py`):
+**Setup (Fixtures):**
 ```python
 @pytest.fixture
-def concert_server_instance():
+def concert_server():
+    """Start concert server for testing on random port."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("localhost", 0))
         port = s.getsockname()[1]
@@ -100,43 +99,123 @@ def concert_server_instance():
     server = ConcertServer(port=port)
     server.start()
     time.sleep(0.5)
-    yield server, port
+
+    yield type("Server", (), {"port": port, "instance": server})()
+
     server.stop()
 ```
 
-Pattern 2 — Object fixture (used in newer tests: `test_reserve_batch.py`, `test_query_atomicity.py`): **PREFERRED**
+**Teardown:**
+- Fixtures handle teardown after `yield` — e.g., `server.stop()`
+- Some tests use `try/finally` inside the test body for explicit cleanup
+- Dynamic types created with `type("Server", (), {...})()` to bundle port + instance
+
+**Assertion Pattern:**
+```python
+# Direct value assertions
+assert response["status"] == "SUCCESS"
+assert "transaction_id" in response
+
+# Invariant assertions with descriptive messages
+assert total == capacity, (
+    f"Invariant broken in {section.name}: "
+    f"available({available}) + reserved({reserved}) + sold({sold}) = {total}, "
+    f"expected capacity {capacity}"
+)
+
+# Exception assertions
+with pytest.raises((TransactionNotActiveError, TransactionNotFoundError)):
+    client.confirm(tx_id)
+
+# Boolean/method assertions
+assert is_valid, f"Expected valid request, got error: {msg}"
+```
+
+## Mocking
+
+**Framework:** `unittest.mock` (standard library) — `MagicMock`, `patch`, `call`
+
+**Patterns:**
+```python
+from unittest.mock import MagicMock, call, patch
+
+@pytest.fixture
+def app():
+    """Return a ConcertTextualApp instance with mocked widgets."""
+    app = ConcertTextualApp()
+    table_mock = MagicMock()
+    table_mock.cursor_type = "cell"
+    table_mock.row_count = 0
+    app.query_one = MagicMock(return_value=table_mock)
+    app.pending_selections = []
+    return app
+
+
+def test_empty_grid_sets_cursor_none(self, app):
+    """Empty grid → cursor_type set to 'none', no rows added."""
+    app.seat_map_snapshot = {"GENERAL": []}
+    app.selected_map_section = "GENERAL"
+
+    table = app._render_seat_map()  # or call helper
+
+    assert table.cursor_type == "none"
+    table.clear.assert_called_with(columns=True)
+    table.add_columns.assert_not_called()
+    table.add_row.assert_not_called()
+```
+
+**What to Mock:**
+- External UI widgets (Textual `DataTable`, `Static`, `Select`, etc.) when testing TUI components
+- `call_from_thread()` in TUI tests — mocked to avoid thread marshaling complexity
+- Used sparingly — most tests are integration/E2E style against a real server
+
+**What NOT to Mock:**
+- Core business logic classes (`SeatMatrix`, `ReservationTable`, `SemaphoreManager`)
+- Server/client communication — real TCP sockets used in most tests
+- Protocol validators — tested with real JSON payloads
+
+## Fixtures and Factories
+
+**Test Data (Server Fixtures):**
 ```python
 @pytest.fixture
 def concert_server():
-    import socket
+    """Start concert server with random port. Returns object with .port and .instance."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(('localhost', 0))
+        s.bind(("localhost", 0))
         port = s.getsockname()[1]
     server = ConcertServer(port=port)
     server.start()
     time.sleep(0.5)
-    yield type('Server', (), {'port': port, 'instance': server})()
+    yield type("Server", (), {"port": port, "instance": server})()
     server.stop()
 ```
 
-All fixtures:
-| Fixture | File(s) | Returns |
-|---------|---------|---------|
-| `concert_server` | `test_reserve_batch.py`, `test_query_atomicity.py` | Object with `.port` and `.instance` |
-| `concert_server_instance` | `test_transaction_idempotency.py`, `test_query_seat_map.py` | Tuple `(server, port)` |
+**Location:**
+- Fixtures defined in test files (not in `conftest.py` — no shared fixture modules)
+- Each test file defines its own server fixtures (some duplication across files)
+- Some fixture names vary slightly: `concert_server`, `concert_server_instance`, `server_port`
 
-**Best practice when adding new tests:** Use the `concert_server` fixture pattern (pattern 2) to stay consistent with newer test files.
+**Helper Functions:**
+- Shared helpers defined as module-level functions:
+```python
+def _wait_for_server(host, port, retries=50, wait_seconds=0.1):
+    """Poll server until QUERY succeeds or timeout."""
+    for _ in range(retries):
+        try:
+            client = ConcertClient(host=host, port=port)
+            response = client.query()
+            if response.get("status") == "SUCCESS":
+                return
+        except Exception:
+            time.sleep(wait_seconds)
+    raise RuntimeError("Server did not start in time")
+```
 
-## Mocking
-
-**Framework:** No mocking framework used. No `unittest.mock` or `pytest-mock` imports detected.
-
-**What to Mock:** Nothing is currently mocked — tests use real `ConcertServer` instances on ephemeral ports. This is an integration-heavy approach.
-
-**Patterns without mocks:**
-- Inline test doubles for unit tests: `RecordingLock`, `DummySeatMatrix`, `DummyReservationTable` in `test_lock_hierarchy_core.py`
+**Recording/Fake Objects:**
 ```python
 class RecordingLock:
+    """Fake lock that records acquire/release calls for testing lock ordering."""
     def __init__(self, name, events):
         self.name = name
         self.events = events
@@ -146,189 +225,158 @@ class RecordingLock:
 
     def release(self):
         self.events.append(f"release:{self.name}")
+
+
+class DummySeatMatrix:
+    """Lightweight seat matrix stub for mutex manager tests."""
+    def __init__(self, locks):
+        self.mutex_sections = locks
 ```
-
-- Direct state manipulation for forcing edge cases:
-```python
-# Force expiration path without waiting full TTL.
-with server.reservation_table.mutex_table:
-    reservation = server.reservation_table.reservations[tx_id]
-    reservation.timestamp_creation = 0.0
-server.monitor_thread.expire_reservation(tx_id)
-```
-
-- Semaphore value introspection (uses private `_value` attribute):
-```python
-semaphore_value = server.semaphore_mgr.s_sections[Section.VIP]._value
-```
-
-## Fixtures and Factories
-
-**Test Data:**
-Test data is constructed inline in each test method. No fixture factory or data builder utility exists.
-
-Common patterns:
-```python
-# Single seat request
-{"section": "VIP", "row": 2, "col": 5}
-
-# Batch seats
-[
-    {"section": "VIP", "row": 0, "col": 0},
-    {"section": "PREFERENTIAL", "row": 5, "col": 5},
-    {"section": "GENERAL", "row": 10, "col": 10}
-]
-```
-
-**Where fixtures live:**
-- Fixtures are defined at the bottom of each test file or at the top
-- `concert_server` fixture is duplicated in `test_reserve_batch.py` and `test_query_atomicity.py` (some duplication across files)
-- No shared `conftest.py` file exists — this is a gap when adding new test files
 
 ## Coverage
 
-**Requirements:** None enforced. No coverage tool configuration in `pyproject.toml`.
+**Requirements:** None enforced — no coverage tool installed or configured
 
-**Coverage gap:** With no conftest.py and no coverage config, coverage is not tracked.
+**View Coverage:** Not available — `pytest --cov` would require `pytest-cov` to be added to dev dependencies
 
-**View Coverage (not configured, but could use):**
-```bash
-uv run pytest --cov=src
-```
+**Test coverage observed:**
+- Protocol validation (`protocol_validator.py`): Thoroughly tested by `test_protocol_contract.py` (423 lines)
+- Error responses (`error_responses.py`): Tested by `test_deterministic_errors.py` (326 lines)
+- Lock hierarchy (`lock_hierarcky.py`, `mutex_manager.py`): Tested by `test_lock_hierarchy_core.py` (94 lines)
+- RESERVE_BATCH: Tested by `test_reserve_batch.py` (493 lines — most comprehensive)
+- TUI seat map: Tested by `test_tui_seat_map.py` (160 lines)
+- Phase features: 4 E2E test files totaling ~820 lines
+- Concurrency: `concurrent_tests.py` (430 lines) runs stress tests
+- **Gaps:** `concert_server.py` startup/shutdown edge cases, `session_manager.py` direct unit tests, `global_log.py` no direct tests
 
 ## Test Types
 
 **Unit Tests:**
-- `test_lock_hierarchy_core.py` — Tests lock ordering logic with recording test doubles (pure unit, no server)
-- `test_deterministic_errors.py` — Tests error response factory functions (pure unit)
-- `test_protocol_contract.py` — Tests validation functions directly (pure unit)
+- Scope: Functions/classes tested in isolation
+- Examples: `test_lock_hierarchy_core.py` (lock ordering logic with fakes), `test_protocol_contract.py` (validator functions), `test_deterministic_errors.py` (error factory functions), `test_tui_seat_map.py` (TUI methods with mocked widgets)
+- Pattern: Arrange inputs, call function, assert output/state
 
 **Integration Tests:**
-- `test_reserve_batch.py` — Tests RESERVE_BATCH against live server
-- `test_transaction_idempotency.py` — Tests CONFIRM/CANCEL/expire lifecycle
-- `test_query_seat_map.py` — Tests seat map query against live server
-- `test_query_atomicity.py` — Tests QUERY invariants with concurrency
-- `test_transaction_races.py` — Tests concurrent confirm vs expire behavior
+- Scope: Server + client communicating over TCP on localhost
+- Examples: `test_phase1_e2e.py`, `test_phase2_e2e.py`, `test_transaction_idempotency.py`, `test_query_seat_map.py`
+- Pattern: Start server fixture → create client → perform operations → assert server state
+- Port binding: Always use `s.bind(("localhost", 0))` for random free port allocation
+- Server warmup: `time.sleep(0.5)` after `server.start()` (no event-based ready signal)
+
+**Stress/Concurrency Tests:**
+- Scope: Multiple threads performing concurrent reservations
+- Example: `concurrent_tests.py` — 50 iterations × 10 threads per section, verifying invariants
+- Pattern: `threading.Barrier` for synchronized parallel execution, result collection with locks, invariant checks after each iteration
+- Handles: Race conditions between RESERVE, CONFIRM, CANCEL from multiple clients
+
+**Race Condition Tests:**
+- Scope: Specific concurrency scenarios (confirm vs expire, confirm vs cancel)
+- Examples: `test_transaction_races.py`, `test_phase3_e2e.py`
+- Pattern: Manual timing manipulation (modify `timestamp_creation = 0.0`), synchronized thread start with `threading.Barrier(3)`
 
 **E2E Tests:**
-- Not formally defined. `concurrent_tests.py` is a stress/load test script, not auto-discovered by pytest.
+- Scope: Full request-response cycle through server
+- Framework: No E2E framework (Cypress, Playwright, etc.) — not used
+- TUI tests test individual rendering methods, not full UI interaction flow
 
 ## Common Patterns
 
-**Async Testing:**
-No async code in the codebase. All I/O is synchronous. Threading is used for concurrency.
-
-**Concurrent Testing Pattern (using threading.Barrier):**
+**Async/Thread Testing:**
 ```python
-def _run_parallel(expire_fn, client_fn):
+def test_confirm_vs_expire_keeps_consistency():
+    # Start server, create client, reserve seat
+    ...
+
     start_barrier = threading.Barrier(3)
     results = {}
 
     def run_expire():
         start_barrier.wait()
-        try:
-            expire_fn()
-            results["expire"] = "ok"
-        except Exception as exc:
-            results["expire"] = f"error:{type(exc).__name__}"
+        # Expire the session
+        ...
 
-    def run_client():
+    def run_confirm():
         start_barrier.wait()
-        try:
-            client_fn()
-            results["client"] = "ok"
-        except Exception as exc:
-            results["client"] = f"error:{type(exc).__name__}"
+        # Try to confirm
+        ...
 
-    t_expire = threading.Thread(target=run_expire)
-    t_client = threading.Thread(target=run_client)
-    t_expire.start()
-    t_client.start()
-    start_barrier.wait()
-    t_expire.join(timeout=5)
-    t_client.join(timeout=5)
-    return results
+    t1 = threading.Thread(target=run_expire)
+    t2 = threading.Thread(target=run_confirm)
+    t1.start()
+    t2.start()
+    start_barrier.wait()  # third participant (main thread)
+
+    t1.join(timeout=5)
+    t2.join(timeout=5)
+
+    # Assert final state is consistent
 ```
 
 **Error Testing:**
 ```python
-def test_scenario_reserve_invalid_section(self):
-    response = error_invalid_section("EXECUTIVE")
-    assert response["status"] == "ERROR"
-    assert response["error_code"] == ErrorCode.INVALID_SECTION
-    assert "EXECUTIVE" in response["message"]
+def test_invalid_section(self):
+    """Unknown section should fail validation."""
+    request = {"action": "RESERVE", "section": "BALCONY", "row": 0, "col": 0}
+
+    is_valid, error_msg = validate_reserve_payload(request)
+
+    assert is_valid is False
+    assert "BALCONY" in error_msg
+
+# Exception testing with pytest.raises
+with pytest.raises((TransactionNotActiveError, TransactionNotFoundError)):
+    client.confirm(tx_id)
 ```
 
-**Exception Testing with pytest.raises:**
+**Invariant Checking Pattern:**
 ```python
-def test_confirm_fails_after_expiration(self, concert_server_instance):
-    # ... setup ...
+def _check_invariants(server, query_response):
+    """Verify all system invariants after operations."""
+    # Assert protocol compliance
+    assert query_response["status"] == "SUCCESS"
+
+    for section in Section:
+        stats = query_response["sections"][section.name]
+        # Assert accounting invariance
+        total = stats["available"] + stats["reserved"] + stats["sold"]
+        capacity = rows * cols
+        assert total == capacity, f"Invariant broken: {total} != {capacity}"
+
+        # Assert semaphore consistency
+        assert semaphore_value == stats["available"]
+```
+
+**Expected Failure Pattern:**
+```python
+def test_confirm_fails_after_expiration(concert_server_instance):
+    server, port = concert_server_instance
+    client = ConcertClient(host="localhost", port=port)
+
+    resp = client.reserve_seat("VIP", 0, 2)
+    tx_id = resp["transaction_id"]
+
+    # Force expiration by backdating creation time
+    with server.reservation_table.mutex_table:
+        reservation = server.reservation_table.reservations[tx_id]
+        reservation.timestamp_creation = 0.0
+
+    server.monitor_thread.expire_reservation(tx_id)
+
+    # Operation should fail after forced expiration
     with pytest.raises((TransactionNotActiveError, TransactionNotFoundError)):
         client.confirm(tx_id)
 ```
 
-**Invariant Testing Pattern (used in test_query_atomicity.py):**
-```python
-for section_name, counts in response["sections"].items():
-    available = counts["available"]
-    reserved = counts["reserved"]
-    sold = counts["sold"]
-    config = SECTION_CONFIG.get(Section[section_name], {})
-    capacity = config.get("rows", 0) * config.get("cols", 0)
-    total = available + reserved + sold
-    assert total == capacity
-```
+## Test Dependencies
 
-**Thread Safety Verification Pattern:**
-```python
-results = {"success": [], "failure": []}
-lock = threading.Lock()
-
-def reserve_seats(client_id):
-    try:
-        client = ConcertClient('localhost', port)
-        response = client.send_request({...})
-        with lock:
-            if response["status"] == "SUCCESS":
-                results["success"].append(client_id)
-            else:
-                results["failure"].append(client_id)
-    except Exception as e:
-        with lock:
-            results["failure"].append((client_id, str(e)))
-
-threads = [threading.Thread(target=reserve_seats, args=(i,)) for i in range(2)]
-for t in threads:
-    t.start()
-for t in threads:
-    t.join(timeout=5)
-
-assert len(results["success"]) == 1
-assert len(results["failure"]) == 1
-```
-
-**Test types by file:**
-
-| File | Type | Tests |
-|------|------|-------|
-| `test_lock_hierarchy_core.py` | Unit | 4 tests — lock ordering, deduplication, context manager |
-| `test_protocol_contract.py` | Unit | ~30 tests — JSON parsing, action validation, payload validation, response validation |
-| `test_deterministic_errors.py` | Unit | ~20 tests — error structure, determinism, status differentiation, enum values |
-| `test_query_atomicity.py` | Integration | 6 tests — protocol compliance, invariants, idempotence, consistency |
-| `test_query_seat_map.py` | Integration | 3 tests — initial state, reflects lifecycle |
-| `test_reserve_batch.py` | Integration | ~12 tests — protocol validation, atomicity, edge cases, concurrency |
-| `test_transaction_idempotency.py` | Integration | 3 tests — confirm/cancel removes reservation, expiration |
-| `test_transaction_races.py` | Integration | 2 tests — confirm vs expire, cancel vs expire races |
-
-## Gaps & Recommendations
-
-1. **No `conftest.py`** — Shared fixtures (`concert_server`) are duplicated across test files. Extract into `tests/conftest.py`.
-2. **No code coverage configuration** — Add `[tool.coverage.run]` to `pyproject.toml` and enforce minimum coverage.
-3. **`concurrent_tests.py` not auto-discovered** — Not picked up by pytest because it lacks `test_` prefix. Rename to `test_concurrent_stress.py` and convert to pytest functions.
-4. **No mocking framework** — Adding `pytest-mock` would allow isolating server logic from network I/O for faster unit tests.
-5. **No parameterized tests** — No `@pytest.mark.parametrize` usage. Many validation tests repeat similar patterns.
-6. **Missing `__init__.py` in `tests/`** — While not strictly required by pytest, adding one (even empty) ensures consistent test discovery with all tooling.
+**Dev Dependencies (from `pyproject.toml`):**
+- `pytest>=9.0.3` — test runner
+- `black>=26.3.1` — code formatter
+- `flake8>=7.3.0` — linter
+- No `mock` package (uses `unittest.mock` stdlib)
+- No `coverage` or `pytest-cov`
+- No `pytest-timeout`, `pytest-xdist`, or `pytest-asyncio`
 
 ---
 
-*Testing analysis: 2026-06-01*
+*Testing analysis: 2026-06-04*
