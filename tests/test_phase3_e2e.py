@@ -58,9 +58,6 @@ class TestConfirmNearExpiry:
             # Age the session so expire_session actually expires it
             session = server.session_manager.get_by_session_id(tx_id)
             if session is not None:
-                aged = time.time() - session.ttl_secs - 10
-                for seat_key in list(session.seat_timestamps.keys()):
-                    session.seat_timestamps[seat_key] = aged
                 session.last_activity = time.time() - session.ttl_secs - 10
 
             _expire_session_by_id(server, tx_id)

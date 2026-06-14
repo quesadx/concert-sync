@@ -70,9 +70,7 @@ class TestExpireReservationFix:
         if session is not None:
             import time as _time
             aged = _time.time() - session.ttl_secs - 10
-            for seat_key in list(session.seat_timestamps.keys()):
-                session.seat_timestamps[seat_key] = aged
-            session.last_activity = _time.time() - session.ttl_secs - 10
+            session.last_activity = aged
 
         # Call expire_reservation with the session_id
         server.monitor_thread.expire_reservation(session_id)
@@ -167,9 +165,6 @@ class TestExpireSession:
         session = server.session_manager.get_by_session_id(session_id)
         assert session is not None
         import time as _time
-        aged = _time.time() - session.ttl_secs - 10
-        for seat_key in list(session.seat_timestamps.keys()):
-            session.seat_timestamps[seat_key] = aged
         session.last_activity = _time.time() - session.ttl_secs - 10
 
         # Verify seat is RESERVED

@@ -234,10 +234,7 @@ def test_expiration_releases_seats_under_concurrent_reserve(num_clients=5):
         # MonitorThread path (poll + expire_session + seat release).
         for session in server.session_manager._sessions.values():
             session.ttl_secs = 2
-            aged = time.time() - 3
-            session.last_activity = aged
-            for seat_key in list(session.seat_timestamps.keys()):
-                session.seat_timestamps[seat_key] = aged
+            session.last_activity = time.time() - 3
 
         # Wait for MonitorThread to poll and expire sessions (poll=1s, 4s safe margin)
         time.sleep(4)

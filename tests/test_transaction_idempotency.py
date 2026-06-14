@@ -71,7 +71,7 @@ def test_confirm_fails_after_expiration(concert_server_instance):
 
     # Force expiration path without waiting full TTL.
     session = server.session_manager.get_by_session_id(tx_id)
-    session.seat_timestamps[(Section.VIP, 0, 2)] = 0.0
+    session.last_activity = 0.0
 
     server.monitor_thread.expire_reservation(tx_id)
 

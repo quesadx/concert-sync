@@ -156,9 +156,8 @@ class TransactionalThread(threading.Thread):
                     seats[row][col] = SeatState.AVAILABLE
                     return failure_no_capacity(section_str)
 
-                # Add seat to session and record per-seat timestamp
                 session.seats.append((section, row, col))
-                session.record_seat_timestamp(section, row, col)
+                session.reset_ttl()
 
             session_id = session.session_id
             self.server.global_log.append(
@@ -298,11 +297,11 @@ class TransactionalThread(threading.Thread):
 
                         acquired_semaphores[section] += 1
 
-                # Add all seats to session with per-seat timestamps
                 for section in ordered_sections:
                     for row, col in sections_and_seats[section]:
                         session.seats.append((section, row, col))
-                        session.record_seat_timestamp(section, row, col)
+
+                session.reset_ttl()
 
             session_id = session.session_id
             self.server.global_log.append(
@@ -424,7 +423,8 @@ class TransactionalThread(threading.Thread):
                 for section in ordered_sections:
                     for row, col in sections_and_seats[section]:
                         session.seats.append((section, row, col))
-                        session.record_seat_timestamp(section, row, col)
+
+                session.reset_ttl()
 
             session_id = session.session_id
             self.server.global_log.append(

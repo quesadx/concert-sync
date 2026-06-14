@@ -247,14 +247,11 @@ class SqliteStore:
                         (user_id,),
                     )
                     for section, row, col in session.seats:
-                        ts = session.seat_timestamps.get(
-                            (section, row, col), session.last_activity
-                        )
                         conn.execute(
                             "INSERT OR REPLACE INTO session_seats "
                             "(user_id, section, row, col, reserved_at) "
                             "VALUES (?, ?, ?, ?, ?)",
-                            (user_id, section.name, row, col, ts),
+                            (user_id, section.name, row, col, session.last_activity),
                         )
 
                 conn.execute("COMMIT")
@@ -301,11 +298,6 @@ class SqliteStore:
                         (Section[sr["section"]], sr["row"], sr["col"])
                         for sr in seat_rows
                     ]
-                    seat_timestamps: Dict[Tuple[Section, int, int], float] = {}
-                    for sr in seat_rows:
-                        seat_timestamps[
-                            (Section[sr["section"]], sr["row"], sr["col"])
-                        ] = sr["reserved_at"] if sr["reserved_at"] > 0 else srow["last_activity"]
                     result.append(
                         {
                             "user_id": srow["user_id"],
@@ -314,7 +306,6 @@ class SqliteStore:
                             "last_activity": srow["last_activity"],
                             "ttl_secs": srow["ttl_secs"],
                             "seats": seats,
-                            "seat_timestamps": seat_timestamps,
                         }
                     )
                 return result

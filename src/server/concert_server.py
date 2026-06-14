@@ -65,7 +65,6 @@ class ConcertServer:
                     user_id=sdata["user_id"],
                     session_id=sdata["session_id"],
                     seats=sdata["seats"],
-                    seat_timestamps=sdata.get("seat_timestamps", {}),
                     last_activity=sdata["last_activity"],
                     ttl_secs=sdata["ttl_secs"],
                     state=session_state,
