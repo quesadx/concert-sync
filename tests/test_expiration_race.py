@@ -92,9 +92,13 @@ class TestExpirationRace:
         tx_id = reserve["transaction_id"]
 
         # Artificially age the session to force immediate expiry
+        # Must age both last_activity AND per-seat timestamps
         session = server.session_manager.get_by_session_id(tx_id)
         if session is not None:
-            session.last_activity = time.time() - (RESERVATION_TTL + 10)
+            aged = time.time() - (RESERVATION_TTL + 10)
+            session.last_activity = aged
+            for seat_key in list(session.seat_timestamps.keys()):
+                session.seat_timestamps[seat_key] = aged
 
         # Allow MonitorThread to sweep (runs every 1s)
         time.sleep(1.5)
@@ -117,9 +121,13 @@ class TestExpirationRace:
         tx_id = reserve["transaction_id"]
 
         # Artificially age the session to force expiry
+        # Must age both last_activity AND per-seat timestamps
         session = server.session_manager.get_by_session_id(tx_id)
         if session is not None:
-            session.last_activity = time.time() - (RESERVATION_TTL + 10)
+            aged = time.time() - (RESERVATION_TTL + 10)
+            session.last_activity = aged
+            for seat_key in list(session.seat_timestamps.keys()):
+                session.seat_timestamps[seat_key] = aged
 
         # Let MonitorThread sweep
         time.sleep(1.5)

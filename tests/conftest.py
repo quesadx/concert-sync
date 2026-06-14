@@ -27,6 +27,13 @@ def server():
     """
     from src.server.concert_server import ConcertServer
 
+    # Remove stale SQLite DB to prevent cross-test state pollution.
+    _db = os.path.join(_project_root, "data", "concert_sync.db")
+    try:
+        os.remove(_db)
+    except FileNotFoundError:
+        pass
+
     srv = ConcertServer(host="localhost", port=9999)
     srv_thread = threading.Thread(target=srv.start, daemon=True)
     srv_thread.start()
