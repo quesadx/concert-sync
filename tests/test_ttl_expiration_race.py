@@ -41,9 +41,8 @@ class TestTTLExpirationRace:
         # Artificially age the session to force near-term expiry
         session = server.session_manager.get_by_session_id(tx_id)
         assert session is not None
-        # Set last_activity so the session is "about to expire" — old enough
-        # that expire_session would treat it as expired, but still ACTIVE.
-        session.last_activity = time.time() - (RESERVATION_TTL + 1)
+        aged = time.time() - (RESERVATION_TTL + 1)
+        session.last_activity = aged
 
         barrier = threading.Barrier(2)
         results = {}
@@ -108,7 +107,8 @@ class TestTTLExpirationRace:
         # Artificially age past TTL
         session = server.session_manager.get_by_session_id(tx_id)
         assert session is not None
-        session.last_activity = time.time() - (RESERVATION_TTL + 10)
+        aged = time.time() - (RESERVATION_TTL + 10)
+        session.last_activity = aged
 
         # Let MonitorThread sweep (runs every 1s)
         time.sleep(1.5)

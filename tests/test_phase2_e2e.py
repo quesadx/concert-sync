@@ -22,6 +22,10 @@ def server_port():
 @pytest.fixture
 def concert_server(server_port):
     """Start concert server for testing on random port."""
+    import os
+    _db = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "concert_sync.db")
+    try: os.remove(_db)
+    except FileNotFoundError: pass
     server = ConcertServer(port=server_port)
     server.start()
     time.sleep(0.5)
@@ -61,11 +65,17 @@ class TestExpireReservationFix:
         assert response["status"] == "SUCCESS"
         session_id = response["transaction_id"]
 
+        # Age the session's per-seat timestamps
+        session = server.session_manager.get_by_session_id(session_id)
+        if session is not None:
+            import time as _time
+            aged = _time.time() - session.ttl_secs - 10
+            session.last_activity = aged
+
         # Call expire_reservation with the session_id
         server.monitor_thread.expire_reservation(session_id)
 
         # Verify seat is now AVAILABLE
-        section = SeatState.__class__  # placeholder, use Section enum
         from src.utils.enums import Section
         seat_state = server.seat_matrix.seats[Section.VIP][0][0]
         assert seat_state == SeatState.AVAILABLE, "Seat should be AVAILABLE after expiration"
@@ -151,9 +161,11 @@ class TestExpireSession:
         assert response["status"] == "SUCCESS"
         session_id = response["transaction_id"]
 
-        # Get the session
+        # Get the session and age its per-seat timestamps
         session = server.session_manager.get_by_session_id(session_id)
         assert session is not None
+        import time as _time
+        session.last_activity = _time.time() - session.ttl_secs - 10
 
         # Verify seat is RESERVED
         assert server.seat_matrix.seats[Section.VIP][1][1] == SeatState.RESERVED

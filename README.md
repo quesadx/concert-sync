@@ -1,182 +1,147 @@
 # ConcertSync
 
-ConcertSync is a small Python project implementing a TCP-based seat reservation server for a concert venue. It uses JSON messages over sockets, threading for concurrent clients, and shared resource management to keep seat states consistent.
+TCP-based concurrent seat reservation system for a concert venue. Python server
+manages seat state across three sections (VIP, PREFERENTIAL, GENERAL) using
+threading, lock hierarchies, and semaphores. Two frontends available: a **PySide6
+desktop GUI** (recommended) and a **Textual terminal TUI** (legacy).
 
-## Project Structure
-
-- `main.py`: starts the `ConcertServer` on the configured port.
-- `src/server/concert_server.py`: server lifecycle, listener thread, and monitor thread.
-- `src/server/listener_thread.py`: accepts incoming connections.
-- `src/server/transactional_thread.py`: handles client requests for `RESERVE`, `CONFIRM`, `CANCEL`, and `QUERY`.
-- `src/server/monitor_thread.py`: expires timed-out reservations and restores seats.
-- `src/client/concert_client.py`: client helper for sending JSON requests to the server.
-- `src/shared_resources/seat_matrix.py`: seat matrix state and section locking.
-- `src/shared_resources/semaphore_manager.py`: capacity semaphores per section.
-- `src/shared_resources/reservation_table.py`: in-memory transaction table with TTL.
-- `src/shared_resources/global_log.py`: thread-safe event logging.
-- `src/utils/enums.py`: enums for seat states, sections, and reservation statuses.
-- `src/utils/config.py`: section dimensions, reservation TTL, and server port.
-- `frontend_tui/`: Textual-based terminal frontend (English UI) connected to the same client-server protocol.
-- `frontend_pyside6/`: PySide6 desktop GUI frontend — replaces the TUI with a native Qt window.
-
-## How It Works
-
-1. The server listens for TCP connections on port `9999`.
-2. Each client connection is managed by a separate thread.
-3. `RESERVE` changes a seat from `AVAILABLE` to `RESERVED`, records a transaction, and reserves section capacity.
-4. `CONFIRM` moves reserved seats to `SOLD` and marks the transaction as confirmed.
-5. `CANCEL` releases reserved seats and frees the section capacity.
-6. `QUERY` returns counts of `available`, `reserved`, and `sold` seats per section.
-7. A background monitor thread expires active reservations after `RESERVATION_TTL` seconds and restores seats.
-
-## Configuration
-
-- `src/utils/config.py` defines:
-  - `SECTION_CONFIG`: rows and columns for each section
-  - `RESERVATION_TTL`: 300 seconds
-  - `SERVER_PORT`: 9999
-
-## Setup
-
-Requirements: Python 3.14+ and [uv](https://docs.astral.sh/uv/) (recommended).
+## Quick Start
 
 ```bash
-# Install dependencies for the PySide6 GUI
-uv sync --group pyside6
-
-# Or install everything (GUI + TUI + dev tools)
-uv sync --group pyside6 --group tui --group dev
-```
-
-**macOS only** — if the Qt app menu doesn't show, set:
-```bash
-export QT_MAC_WANTS_LAYER=1
-```
-
-## Running the PySide6 Desktop GUI (Recommended)
-
-### Option 1: Launch both server and GUI together
-
-The easiest way to start is with the desktop launcher, which runs the server and opens the GUI in a single command:
-
-```bash
+# Option A: Server + GUI in one command
 python desktop_launcher.py
+
+# Option B: Server + TUI in one command (Nix)
+nix develop --command python desktop_launcher.py --mode tui
+
+# Option C: Separate processes
+python main.py                          # Terminal 1: start server
+python -m frontend_pyside6              # Terminal 2: start GUI
 ```
 
-### Option 2: Run server and GUI separately
+## Requirements
 
-Use this when you want to connect multiple clients to the same server, or run the server on a different machine.
+| Setup | Command |
+|---|---|
+| Nix (recommended) | `nix develop` — enters shell with all deps |
+| uv | `uv sync --group pyside6` |
+| pip | `pip install pyside6` |
 
-**Terminal 1 — Start the server:**
-```bash
-python main.py
-```
-The server listens on TCP port `9999`. Keep this terminal open.
+Port **9999** must be available.
 
-**Terminal 2 — Start the PySide6 GUI client:**
-```bash
-python -m frontend_pyside6
-```
+## Running
 
-**Optional — Start the server monitoring dashboard:**
-```bash
-python -m frontend_pyside6 --mode dashboard
-```
-
-### Available `desktop_launcher.py` modes
+### PySide6 Desktop GUI
 
 ```bash
-# Server + PySide6 GUI together (default)
+# Server + GUI (one process)
 python desktop_launcher.py
 
 # Server only
 python desktop_launcher.py --mode server
 
-# PySide6 GUI client only (connects to an existing server)
+# GUI only (connect to existing server)
 python desktop_launcher.py --mode client
+python -m frontend_pyside6 --mode client
 
-# Server monitoring dashboard only
+# Server monitoring dashboard
 python desktop_launcher.py --mode dashboard
-
-# Server + Textual TUI (legacy)
-python desktop_launcher.py --mode tui
+python -m frontend_pyside6 --mode dashboard
 ```
 
-## Running the Textual TUI (Legacy)
+### Using the GUI
+
+1. Click **Connect** in the left panel (enter a user ID or leave blank for auto-generated).
+2. Click an **AVAILABLE** seat (green) to reserve it immediately — it turns blue.
+3. The **Transaction ID** auto-populates in the input field.
+4. Click **Confirm** to finalize the purchase (seat turns red — SOLD).
+5. Click **Cancel** to release the seat.
+6. Switch sections with the **VIP / Preferential / General** buttons.
+7. Click **Activity Center** to see event logs, active sessions, and stats.
+8. Reservations expire after **300 seconds** (5 min) — TTL countdown shown in the panel.
+
+### Textual TUI (Legacy)
 
 ```bash
-nix develop -c python -m frontend_tui
+nix develop --command python -m frontend_tui
 ```
 
-If you are not using Nix:
+### Nix
 
 ```bash
-python -m frontend_tui
+nix develop
+python main.py                    # start server
+python -m frontend_pyside6        # start GUI
 ```
 
-## macOS Launcher
+## Seats
 
-For a Mac user, the easiest option is the bundled launcher at [run_concert_sync.command](run_concert_sync.command).
+| Section | Size | Capacity |
+|---|---|---|
+| VIP | 5 × 10 | 50 |
+| PREFERENTIAL | 10 × 15 | 150 |
+| GENERAL | 20 × 20 | 400 |
 
-Double-click it in Finder, or run it from Terminal:
+**Colors (GUI):** Green = Available, Blue = Yours, Orange = Reserved (other user), Red = Sold, Purple = Pending.
+
+## Load Generator (Demo para profesora)
+
+Genera requests concurrentes para llenar asientos en vivo mientras se ve en la GUI.
 
 ```bash
-bash run_concert_sync.command
+# Terminal 1: servidor
+nix develop --command python main.py
+
+# Terminal 2: GUI
+nix develop --command python -m frontend_pyside6 --mode client
+
+# Terminal 3: generador de carga (lento — 1 request cada 0.5s)
+nix develop --command python tests/load_generator.py --requests 50 --delay 0.5
+
+# Más lento aún (1 cada 2s)
+nix develop --command python tests/load_generator.py --requests 20 --delay 2
+
+# Rápido (todo de golpe, sin delay)
+nix develop --command python tests/load_generator.py --requests 100 --conflicts
 ```
 
-By default it starts the server and then opens the TUI in the same Terminal window. It creates a local `.venv` on first run and installs the small Python dependencies it needs.
+| Flag | Default | Descripción |
+|---|---|---|
+| `--requests N` | 100 | Cantidad de requests concurrentes |
+| `--delay N` | 0 | Segundos de espera entre cada request |
+| `--conflicts` | off | Múltiples hilos atacan los mismos asientos |
 
-## Running Tests
+## Reset — Limpiar estado guardado
+
+El servidor persiste asientos y sesiones en `data/concert_sync.db`.
+Para empezar desde cero:
 
 ```bash
-# With uv
-uv run pytest tests/ -x -q
-
-# Or with the run script
-bash scripts/run.sh test
+# 1. Parar el servidor (Ctrl+C)
+# 2. Borrar la base de datos
+rm data/concert_sync.db
+# 3. Iniciar el servidor de nuevo
+nix develop --command python main.py
 ```
 
-## Windows Executable
+## Tests
 
-If you want a single `.exe` for a Windows desktop, build it on Windows with [scripts/build_windows_exe.ps1](scripts/build_windows_exe.ps1).
-
-The script creates `dist/ConcertSync.exe`, which starts the server and the TUI together in one console window.
-
-## Using the Client
-
-The client sends JSON requests to the server. Supported actions:
-
-- `RESERVE`: reserve a seat by section, row, and column
-- `CONFIRM`: confirm a reservation by transaction ID
-- `CANCEL`: cancel a reservation by transaction ID
-- `QUERY`: get section seat counts
-
-Example request format:
-
-```json
-{
-  "action": "RESERVE",
-  "section": "VIP",
-  "row": 0,
-  "col": 0
-}
+```bash
+python -m pytest tests/ -x -v
 ```
 
-## Justification and Quality
+## Project Structure
 
-### Justificación
-- Decisiones técnicas clave:
-  - uso de sockets TCP para comunicación cliente-servidor
-  - uso de `threading` para cada conexión y un monitor de expiración independiente
-  - coordinación de recursos con `mutex` y semáforos por sección
-  - controla el estado de cada asiento en `AVAILABLE`, `RESERVED` y `SOLD`
-  - protege matriz, tabla de reservas y semáforos para evitar inconsistencias
-  - aplica expiración TTL y manejo correcto de confirmaciones/cancelaciones
-
-### Calidad
-- Código estructurado y comentado:
-  - módulo de sincronización separado (`src/synchronization`)
-  - manejo de estados y transacciones en `src/server/transactional_thread.py`
-  - recursos compartidos encapsulados en `src/shared_resources`
-
-
+```
+main.py                          # Server entry point
+desktop_launcher.py              # Server + frontend launcher
+src/
+  server/                        # TCP server, threading, request dispatch
+  client/                        # TCP client with typed exceptions
+  shared_resources/              # Seat matrix, semaphores, SQLite persistence
+  synchronization/               # Lock hierarchy (deadlock prevention)
+  utils/                         # Config, enums, protocol validation
+frontend_pyside6/                # PySide6 desktop GUI (recommended)
+frontend_tui/                    # Textual TUI (legacy)
+tests/                           # 204 tests — protocol, race conditions, concurrency
+```

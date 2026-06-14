@@ -24,7 +24,14 @@ from src.utils.protocol_validator import validate_request, ErrorCode
 @pytest.fixture
 def concert_server():
     """Start concert server for testing."""
+    import os
     import socket
+    
+    # Remove stale SQLite DB to prevent cross-test state pollution
+    try:
+        os.remove("data/concert_sync.db")
+    except FileNotFoundError:
+        pass
     
     # Find free port
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -53,6 +60,7 @@ class TestReserveBatchProtocolValidation:
         """Valid batch with single seat in VIP."""
         request = json.dumps({
             "action": "RESERVE_BATCH",
+            "user_id": "test_user",
             "seats": [{"section": "VIP", "row": 0, "col": 0}]
         }).encode()
         
@@ -64,6 +72,7 @@ class TestReserveBatchProtocolValidation:
         """Valid batch with seats spanning VIP, PREFERENTIAL, GENERAL."""
         request = json.dumps({
             "action": "RESERVE_BATCH",
+            "user_id": "test_user",
             "seats": [
                 {"section": "VIP", "row": 0, "col": 0},
                 {"section": "PREFERENTIAL", "row": 5, "col": 5},
@@ -83,6 +92,7 @@ class TestReserveBatchProtocolValidation:
         ]
         request = json.dumps({
             "action": "RESERVE_BATCH",
+            "user_id": "test_user",
             "seats": seats
         }).encode()
         
@@ -94,6 +104,7 @@ class TestReserveBatchProtocolValidation:
         """Empty seats array should be invalid."""
         request = json.dumps({
             "action": "RESERVE_BATCH",
+            "user_id": "test_user",
             "seats": []
         }).encode()
         
@@ -109,6 +120,7 @@ class TestReserveBatchProtocolValidation:
         ]
         request = json.dumps({
             "action": "RESERVE_BATCH",
+            "user_id": "test_user",
             "seats": seats
         }).encode()
         
@@ -120,6 +132,7 @@ class TestReserveBatchProtocolValidation:
         """Batch with duplicate seat coordinates should be invalid."""
         request = json.dumps({
             "action": "RESERVE_BATCH",
+            "user_id": "test_user",
             "seats": [
                 {"section": "VIP", "row": 0, "col": 0},
                 {"section": "VIP", "row": 0, "col": 0}
@@ -134,6 +147,7 @@ class TestReserveBatchProtocolValidation:
         """Batch with invalid section should be invalid."""
         request = json.dumps({
             "action": "RESERVE_BATCH",
+            "user_id": "test_user",
             "seats": [
                 {"section": "BALCONY", "row": 0, "col": 0}
             ]
@@ -147,6 +161,7 @@ class TestReserveBatchProtocolValidation:
         """Batch with out-of-bounds seat should be invalid."""
         request = json.dumps({
             "action": "RESERVE_BATCH",
+            "user_id": "test_user",
             "seats": [
                 {"section": "VIP", "row": 100, "col": 100}
             ]
@@ -160,6 +175,7 @@ class TestReserveBatchProtocolValidation:
         """Batch with negative coordinates should be invalid."""
         request = json.dumps({
             "action": "RESERVE_BATCH",
+            "user_id": "test_user",
             "seats": [
                 {"section": "VIP", "row": -1, "col": 0}
             ]
@@ -179,7 +195,7 @@ class TestReserveBatchAtomicity:
     
     def test_all_seats_available_reserves_all(self, concert_server):
         """When all seats available, all should be reserved."""
-        client = ConcertClient(host='localhost', port=concert_server.port)
+        client = ConcertClient(user_id="test_user", host='localhost', port=concert_server.port)
         
         seats_to_reserve = [
             {"section": "VIP", "row": 0, "col": 0},
@@ -216,7 +232,7 @@ class TestReserveBatchAtomicity:
     
     def test_one_seat_unavailable_reserves_none(self, concert_server):
         """When any seat unavailable, no seats should be reserved."""
-        client = ConcertClient(host='localhost', port=concert_server.port)
+        client = ConcertClient(user_id="test_user", host='localhost', port=concert_server.port)
         
         # Pre-occupy VIP(0,1)
         response1 = client.send_request({
@@ -272,8 +288,8 @@ class TestReserveBatchAtomicity:
     
     def test_batch_confirm_rolls_back_on_unavailable_middle_seat(self, concert_server):
         """Batch reserve fails if middle seat becomes unavailable just before reserve."""
-        client1 = ConcertClient(host='localhost', port=concert_server.port)
-        client2 = ConcertClient(host='localhost', port=concert_server.port)
+        client1 = ConcertClient(user_id="test_user", host='localhost', port=concert_server.port)
+        client2 = ConcertClient(user_id="test_user", host='localhost', port=concert_server.port)
         
         # Client2 reserves VIP(1,1)
         resp2 = client2.send_request({
@@ -334,7 +350,7 @@ class TestReserveBatchEdgeCases:
     
     def test_batch_with_same_section_multiple_times(self, concert_server):
         """Batch with multiple seats in same section should work."""
-        client = ConcertClient(host='localhost', port=concert_server.port)
+        client = ConcertClient(user_id="test_user", host='localhost', port=concert_server.port)
         
         response = client.send_request({
             "action": "RESERVE_BATCH",
@@ -350,7 +366,7 @@ class TestReserveBatchEdgeCases:
     
     def test_batch_ttl_field_in_response(self, concert_server):
         """Batch response should include TTL field."""
-        client = ConcertClient(host='localhost', port=concert_server.port)
+        client = ConcertClient(user_id="test_user", host='localhost', port=concert_server.port)
         
         response = client.send_request({
             "action": "RESERVE_BATCH",
@@ -366,7 +382,7 @@ class TestReserveBatchEdgeCases:
     
     def test_batch_then_confirm_all_seats(self, concert_server):
         """Can CONFIRM batch transaction to mark all seats as SOLD."""
-        client = ConcertClient(host='localhost', port=concert_server.port)
+        client = ConcertClient(user_id="test_user", host='localhost', port=concert_server.port)
         
         # RESERVE_BATCH
         response = client.send_request({
@@ -407,7 +423,7 @@ class TestReserveBatchEdgeCases:
     
     def test_batch_then_cancel_releases_semaphore(self, concert_server):
         """CANCEL batch should release semaphore slots."""
-        client = ConcertClient(host='localhost', port=concert_server.port)
+        client = ConcertClient(user_id="test_user", host='localhost', port=concert_server.port)
         
         # Get initial capacity
         query1 = client.send_request({"action": "QUERY"})
@@ -459,7 +475,7 @@ class TestReserveBatchConcurrency:
         
         def reserve_seats(client_id):
             try:
-                client = ConcertClient(host='localhost', port=concert_server.port)
+                client = ConcertClient(user_id="test_user", host='localhost', port=concert_server.port)
                 response = client.send_request({
                     "action": "RESERVE_BATCH",
                     "seats": seats_to_reserve

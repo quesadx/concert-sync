@@ -13,7 +13,6 @@ class UserSession:
     user_id: str
     session_id: str
     seats: List[Tuple[Section, int, int]] = field(default_factory=list)
-    seat_timestamps: Dict[Tuple[Section, int, int], float] = field(default_factory=dict)
     last_activity: float = field(default_factory=time.time)
     ttl_secs: int = RESERVATION_TTL
     state: ReservationStatus = ReservationStatus.ACTIVE
@@ -24,43 +23,20 @@ class UserSession:
             return True
         if not self.seats:
             return True
-        now = time.time()
-        for seat_key in self.seats:
-            ts = self.seat_timestamps.get(seat_key, self.last_activity)
-            if now - ts <= self.ttl_secs:
-                return False
-        return True
+        return time.time() - self.last_activity > self.ttl_secs
 
     @property
     def has_expired_seats(self) -> bool:
-        """Returns True if at least one seat in the session has expired."""
-        if self.state != ReservationStatus.ACTIVE:
-            return False
-        now = time.time()
-        for seat_key in self.seats:
-            ts = self.seat_timestamps.get(seat_key, self.last_activity)
-            if now - ts > self.ttl_secs:
-                return True
-        return False
+        return self.is_expired
 
     def get_expired_seats(self):
-        """Return list of (section, row, col) tuples for seats whose TTL has passed."""
         if self.state != ReservationStatus.ACTIVE:
             return []
-        expired = []
-        now = time.time()
-        for seat_key in self.seats:
-            ts = self.seat_timestamps.get(seat_key, self.last_activity)
-            if now - ts > self.ttl_secs:
-                expired.append(seat_key)
-        return expired
+        if not self.is_expired:
+            return []
+        return list(self.seats)
 
     def reset_ttl(self) -> None:
-        self.last_activity = time.time()
-
-    def record_seat_timestamp(self, section: Section, row: int, col: int) -> None:
-        """Record the reservation timestamp for a single seat."""
-        self.seat_timestamps[(section, row, col)] = time.time()
         self.last_activity = time.time()
 
 
@@ -137,6 +113,14 @@ class SessionManager:
                         # Session already expired/confirmed/cancelled
                         return None
             return None
+
+    def get_all_sessions(self) -> List[UserSession]:
+        with self._lock:
+            return list(self._sessions.values())
+
+    def set_session(self, session: UserSession) -> None:
+        with self._lock:
+            self._sessions[session.user_id] = session
 
     def remove(self, user_id: str) -> Optional[UserSession]:
         with self._lock:

@@ -3,6 +3,7 @@ import json
 
 from src.utils.protocol_validator import (
     validate_reserve_payload,
+    validate_reserve_batch_payload,
     validate_confirm_payload,
     validate_cancel_payload,
     validate_query_payload,
@@ -190,12 +191,17 @@ class ConcertClient:
             Response dict with transaction_id, ttl, and reserved_seats
 
         Raises:
+            InvalidInputError: If inputs are invalid
             ServerError: If server error occurs
         """
         request = {
             "action": "RESERVE_SELECTED",
             "seats": seats,
         }
+
+        is_valid, error_msg = validate_reserve_batch_payload(request)
+        if not is_valid:
+            raise InvalidInputError(f"Invalid reserve_selected input: {error_msg}")
 
         response = self.send_request(request)
         return response

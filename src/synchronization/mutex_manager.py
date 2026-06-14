@@ -1,6 +1,6 @@
 from contextlib import contextmanager
 
-from src.synchronization.lock_hierarcky import acquire_section_locks
+from src.synchronization.lock_hierarchy import acquire_section_locks
 
 
 class MutexManager:

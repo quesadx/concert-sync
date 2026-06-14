@@ -1,6 +1,7 @@
 """E2E tests for Phase 1: User ID + Session-Based TTL."""
 
 import json
+import os
 import socket
 import time
 import pytest
@@ -13,6 +14,13 @@ from src.utils.config import RESERVATION_TTL
 @pytest.fixture
 def concert_server():
     """Start concert server for testing on random port."""
+    # Remove stale SQLite DB to prevent cross-test state pollution.
+    _db = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "concert_sync.db")
+    try:
+        os.remove(_db)
+    except FileNotFoundError:
+        pass
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("localhost", 0))
         port = s.getsockname()[1]

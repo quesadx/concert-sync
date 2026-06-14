@@ -1,4 +1,4 @@
-from src.synchronization.lock_hierarcky import acquire_section_locks, sort_sections
+from src.synchronization.lock_hierarchy import acquire_section_locks, sort_sections
 from src.synchronization.mutex_manager import MutexManager
 from src.utils.enums import Section
 

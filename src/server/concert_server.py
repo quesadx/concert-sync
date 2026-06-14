@@ -1,4 +1,5 @@
 import socket
+import threading
 import time
 from collections import defaultdict
 
@@ -33,6 +34,8 @@ class ConcertServer:
         self.running = False
         self.monitor_thread = None
         self.listener_thread = None
+        self.active_threads: list[threading.Thread] = []
+        self.active_threads_lock = threading.Lock()
 
     def _load_persisted_state(self):
         """Restore server state from SQLite on startup.
@@ -65,7 +68,6 @@ class ConcertServer:
                     user_id=sdata["user_id"],
                     session_id=sdata["session_id"],
                     seats=sdata["seats"],
-                    seat_timestamps=sdata.get("seat_timestamps", {}),
                     last_activity=sdata["last_activity"],
                     ttl_secs=sdata["ttl_secs"],
                     state=session_state,
@@ -104,8 +106,7 @@ class ConcertServer:
                     f"(user={session.user_id}, seats={len(session.seats)})",
                 )
             else:
-                # Re-insert active session into in-memory manager
-                self.session_manager._sessions[session.user_id] = session
+                self.session_manager.set_session(session)
                 restored_count += 1
 
         if restored_count > 0:
@@ -222,17 +223,30 @@ class ConcertServer:
                 f"Released {total_released} seat(s) from {len(sessions)} session(s)",
             )
 
+    def register_thread(self, thread: threading.Thread) -> None:
+        with self.active_threads_lock:
+            self.active_threads.append(thread)
+
+    def unregister_thread(self, thread: threading.Thread) -> None:
+        with self.active_threads_lock:
+            self.active_threads[:] = [t for t in self.active_threads if t is not thread]
+
     def start(self):
-        self.server_socket.bind((self.host, self.port))
+        try:
+            self.server_socket.bind((self.host, self.port))
+        except OSError as e:
+            self.global_log.append("ERROR", f"Failed to bind: {e}")
+            self.running = False
+            raise
         self.server_socket.listen(5)
         self.running = True
 
         self._load_persisted_state()
 
+        self._cleanup_stale_reservations()
+
         self.monitor_thread = MonitorThread(self)
         self.monitor_thread.start()
-
-        self._cleanup_stale_reservations()
 
         self.listener_thread = ListenerThread(self)
         self.listener_thread.start()
@@ -253,16 +267,21 @@ class ConcertServer:
 
         time.sleep(0.5)
 
-        # Persist final seat state before releasing sessions
+        self._release_all_sessions()
+
         self.store.save_all_seats(self.seat_matrix)
         self.store.close()
-
-        self._release_all_sessions()
 
         if self.listener_thread and self.listener_thread.is_alive():
             self.listener_thread.join(timeout=2)
 
         if self.monitor_thread and self.monitor_thread.is_alive():
             self.monitor_thread.join(timeout=2)
+
+        with self.active_threads_lock:
+            for t in self.active_threads:
+                if t.is_alive():
+                    t.join(timeout=1)
+            self.active_threads.clear()
 
         self.global_log.append("SERVER", "Server stopped")

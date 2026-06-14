@@ -6,10 +6,13 @@ Usage:
     python -m frontend_pyside6 --mode dashboard
 """
 
+import os
 import sys
 import argparse
 
-from PySide6.QtWidgets import QApplication
+os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
+
+from PySide6.QtWidgets import QApplication  # noqa: E402 — must be after env var
 
 
 def main():

@@ -27,10 +27,23 @@ def server():
     """
     from src.server.concert_server import ConcertServer
 
+    # Remove stale SQLite DB to prevent cross-test state pollution.
+    _db = os.path.join(_project_root, "data", "concert_sync.db")
+    try:
+        os.remove(_db)
+    except FileNotFoundError:
+        pass
+
     srv = ConcertServer(host="localhost", port=9999)
     srv_thread = threading.Thread(target=srv.start, daemon=True)
     srv_thread.start()
-    time.sleep(0.3)  # Allow the server socket to bind and listener to start
+    # Wait for server to be ready or fail
+    for _ in range(10):
+        if srv.running:
+            break
+        time.sleep(0.1)
+    else:
+        raise RuntimeError("Server failed to start")
 
     yield srv
 
@@ -39,6 +52,7 @@ def server():
     except Exception:
         pass
     srv_thread.join(timeout=3)
+    time.sleep(0.1)  # Let SO_REUSEADDR settle
 
 
 @pytest.fixture(scope="function")
