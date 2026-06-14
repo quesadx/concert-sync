@@ -213,12 +213,11 @@ class SqliteStore:
         """Persist all active sessions to SQLite in a single transaction.
 
         Deletes all existing session_seats rows, then re-inserts for each
-        session. Uses a single transaction for atomicity. The caller must
-        hold session_manager._lock before calling to ensure consistency.
+        session. Uses a single transaction for atomicity.
 
         Args:
-            session_manager: A SessionManager instance with _sessions dict
-                             of UserSession objects keyed by user_id.
+            session_manager: A SessionManager instance with UserSession
+                             objects accessible via get_all_sessions().
         """
         with self._lock:
             conn = None
@@ -227,8 +226,8 @@ class SqliteStore:
                 conn.execute("PRAGMA journal_mode=WAL")
                 conn.execute("BEGIN")
 
-                sessions = session_manager._sessions
-                for user_id, session in sessions.items():
+                for session in session_manager.get_all_sessions():
+                    user_id = session.user_id
                     conn.execute(
                         "INSERT OR REPLACE INTO sessions "
                         "(user_id, session_id, state, last_activity, ttl_secs) "

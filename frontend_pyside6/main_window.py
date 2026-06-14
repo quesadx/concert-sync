@@ -473,8 +473,7 @@ class ConcertMainWindow(QMainWindow):
             coord = (s["section"], s["row"], s["col"])
             session_coords.add(coord)
             seat_summary_parts.append(f"{s['section']}({s['row']},{s['col']})")
-        self.own_reserved_coords.intersection_update(session_coords)
-        self.own_reserved_coords.update(session_coords)
+        self.own_reserved_coords = session_coords
         seat_summary = ", ".join(seat_summary_parts)
 
         if session_id in self.sessions:

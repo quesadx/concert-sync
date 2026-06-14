@@ -13,10 +13,17 @@ Usage:
 """
 
 import threading
+import weakref
 
 from PySide6.QtCore import QObject, Signal
 
 from src.client.concert_client import ConcertClient, ConcertClientError
+
+
+# Track active workers to prevent GC while threads are running
+# (prevents use-after-free segfault in PySide6 signal emission).
+_active_workers: set[weakref.ref] = set()
+_active_workers_lock = threading.Lock()
 
 
 class ReserveWorker(QObject):
@@ -165,10 +172,25 @@ def run_worker(worker: QObject) -> None:
     """Start a worker on a daemon background thread.
 
     The worker emits Qt signals on completion/error; the caller connects
-    slots to those signals before calling run_worker().
+    slots to those signals before calling run_worker(). The worker is kept
+    alive via _active_workers until the thread finishes.
 
     Args:
         worker: A worker QObject with a do_work() method.
     """
-    thread = threading.Thread(target=worker.do_work, daemon=True)
+    ref = weakref.ref(worker)
+    with _active_workers_lock:
+        _active_workers.add(ref)
+
+    original = worker.do_work
+
+    def wrapped():
+        try:
+            original()
+        finally:
+            with _active_workers_lock:
+                _active_workers.discard(ref)
+            worker.deleteLater()
+
+    thread = threading.Thread(target=wrapped, daemon=True)
     thread.start()

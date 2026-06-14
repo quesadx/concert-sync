@@ -11,6 +11,8 @@ Ensures all responses conform to protocol-contract-v1.md schema.
 
 from typing import Dict, Any, Optional
 
+from src.utils.protocol_validator import ErrorCode
+
 
 def build_success_response(**kwargs) -> Dict[str, Any]:
     """
@@ -110,13 +112,11 @@ def build_error_response(error_code: str, message: str) -> Dict[str, Any]:
 
 def error_invalid_payload(message: str = "Invalid request payload") -> Dict[str, Any]:
     """Build ERR_INVALID_PAYLOAD error response."""
-    from src.utils.protocol_validator import ErrorCode
     return build_error_response(ErrorCode.INVALID_PAYLOAD, message)
 
 
 def error_invalid_section(section: str) -> Dict[str, Any]:
     """Build ERR_INVALID_SECTION error response."""
-    from src.utils.protocol_validator import ErrorCode
     return build_error_response(
         ErrorCode.INVALID_SECTION,
         f"Section '{section}' not supported. Valid: VIP, PREFERENTIAL, GENERAL"
@@ -125,7 +125,6 @@ def error_invalid_section(section: str) -> Dict[str, Any]:
 
 def error_invalid_coordinates(row: Any, col: Any, reason: str) -> Dict[str, Any]:
     """Build ERR_INVALID_COORDINATES error response."""
-    from src.utils.protocol_validator import ErrorCode
     return build_error_response(
         ErrorCode.INVALID_COORDINATES,
         f"Invalid coordinates: row={row}, col={col}. Reason: {reason}"
@@ -134,7 +133,6 @@ def error_invalid_coordinates(row: Any, col: Any, reason: str) -> Dict[str, Any]
 
 def error_seat_out_of_bounds(section: str, row: int, col: int, max_rows: int, max_cols: int) -> Dict[str, Any]:
     """Build ERR_SEAT_OUT_OF_BOUNDS error response."""
-    from src.utils.protocol_validator import ErrorCode
     return build_error_response(
         ErrorCode.SEAT_OUT_OF_BOUNDS,
         f"Seat ({row}, {col}) out of bounds for {section} ({max_rows}x{max_cols})"
@@ -143,7 +141,6 @@ def error_seat_out_of_bounds(section: str, row: int, col: int, max_rows: int, ma
 
 def failure_seat_not_available(section: str, row: int, col: int, state: str) -> Dict[str, Any]:
     """Build ERR_SEAT_NOT_AVAILABLE failure response."""
-    from src.utils.protocol_validator import ErrorCode
     return build_failure_response(
         ErrorCode.SEAT_NOT_AVAILABLE,
         f"Seat {section}({row},{col}) is in {state} state, not available for reservation"
@@ -152,7 +149,6 @@ def failure_seat_not_available(section: str, row: int, col: int, state: str) -> 
 
 def failure_no_capacity(section: str) -> Dict[str, Any]:
     """Build ERR_NO_CAPACITY failure response."""
-    from src.utils.protocol_validator import ErrorCode
     return build_failure_response(
         ErrorCode.NO_CAPACITY,
         f"No reservation capacity available in {section} section"
@@ -161,7 +157,6 @@ def failure_no_capacity(section: str) -> Dict[str, Any]:
 
 def failure_transaction_not_found(tx_id: str) -> Dict[str, Any]:
     """Build ERR_TRANSACTION_NOT_FOUND failure response."""
-    from src.utils.protocol_validator import ErrorCode
     return build_failure_response(
         ErrorCode.TRANSACTION_NOT_FOUND,
         f"Transaction '{tx_id}' not found in reservation table"
@@ -170,7 +165,6 @@ def failure_transaction_not_found(tx_id: str) -> Dict[str, Any]:
 
 def failure_transaction_not_active(tx_id: str, current_status: str) -> Dict[str, Any]:
     """Build ERR_TRANSACTION_NOT_ACTIVE failure response."""
-    from src.utils.protocol_validator import ErrorCode
     return build_failure_response(
         ErrorCode.TRANSACTION_NOT_ACTIVE,
         f"Transaction '{tx_id}' is {current_status}, not ACTIVE"
@@ -179,7 +173,6 @@ def failure_transaction_not_active(tx_id: str, current_status: str) -> Dict[str,
 
 def error_invalid_action(action: str) -> Dict[str, Any]:
     """Build ERR_INVALID_ACTION error response."""
-    from src.utils.protocol_validator import ErrorCode
     return build_error_response(
         ErrorCode.INVALID_ACTION,
         f"Unknown action: {action}. Valid: RESERVE, RESERVE_BATCH, CONFIRM, CANCEL, QUERY, QUERY_SEAT_MAP"
@@ -188,7 +181,6 @@ def error_invalid_action(action: str) -> Dict[str, Any]:
 
 def error_internal(exception_msg: str) -> Dict[str, Any]:
     """Build INTERNAL_ERROR response for unexpected exceptions."""
-    from src.utils.protocol_validator import ErrorCode
     return build_error_response(
         ErrorCode.INTERNAL_ERROR,
         f"Unexpected server error: {exception_msg}"

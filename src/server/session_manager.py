@@ -114,6 +114,14 @@ class SessionManager:
                         return None
             return None
 
+    def get_all_sessions(self) -> List[UserSession]:
+        with self._lock:
+            return list(self._sessions.values())
+
+    def set_session(self, session: UserSession) -> None:
+        with self._lock:
+            self._sessions[session.user_id] = session
+
     def remove(self, user_id: str) -> Optional[UserSession]:
         with self._lock:
             return self._sessions.pop(user_id, None)

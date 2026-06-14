@@ -75,7 +75,7 @@ class MonitorThread(threading.Thread):
         Attempts to find session by transaction_id and expire it.
         If no matching session found, logs and returns.
         """
-        for session in list(self.server.session_manager._sessions.values()):
+        for session in self.server.session_manager.get_all_sessions():
             if session.session_id == tx_id:
                 self.expire_session(session)
                 return
