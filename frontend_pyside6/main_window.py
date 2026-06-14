@@ -106,6 +106,7 @@ class ConcertMainWindow(QMainWindow):
         self.own_reserved_coords: Set[tuple[str, int, int]] = set()
         self.own_sold_coords: Set[tuple[str, int, int]] = set()
         self.server_disconnected: bool = False
+        self._closing: bool = False
 
         # ── Log buffer for replaying events into the log dialog ────────────
         self._log_buffer: list[tuple[str, str]] = []
@@ -445,31 +446,16 @@ class ConcertMainWindow(QMainWindow):
 
     @Slot(dict, dict, object)
     def _on_poll_success(self, sections: dict, seat_map_payload: dict, user_session: object) -> None:
-        """Handle successful poll: update snapshots, parse user session, render all widgets.
-
-        Args:
-            sections: Section count dict e.g. {'VIP': {'available': 50, ...}, ...}
-            seat_map_payload: Full seat map dict from QUERY_SEAT_MAP response.
-            user_session: Active session dict for the user, or None if no active session.
-        """
+        if self._closing:
+            return
         self.section_snapshot = sections
         self.seat_map_snapshot = seat_map_payload
         self._sync_user_session(user_session)
         self._render_all()
 
     def _sync_user_session(self, user_session: object) -> None:
-        """Sync client-side session tracking with server-side active session.
-
-        When the user has an active session on the server (detected via
-        QUERY_SEAT_MAP response), create a TrackedSession entry locally
-        so it appears in the session table with TTL countdown. Auto-fills
-        the TX ID input for one-click confirm/cancel.
-
-        Args:
-            user_session: Dict with session_id, seats, ttl_secs, last_activity
-                          from the server, or None if no active session.
-        """
         if user_session is None:
+            self.own_reserved_coords.clear()
             return
 
         session_id = user_session.get("session_id", "")
@@ -478,14 +464,23 @@ class ConcertMainWindow(QMainWindow):
         last_activity = user_session.get("last_activity", 0)
 
         if not session_id or not seat_list:
+            self.own_reserved_coords.clear()
             return
 
-        seat_summary = ", ".join(
-            f"{s['section']}({s['row']},{s['col']})" for s in seat_list
-        )
+        session_coords: Set[tuple[str, int, int]] = set()
+        seat_summary_parts: list[str] = []
+        for s in seat_list:
+            coord = (s["section"], s["row"], s["col"])
+            session_coords.add(coord)
+            seat_summary_parts.append(f"{s['section']}({s['row']},{s['col']})")
+        self.own_reserved_coords.intersection_update(session_coords)
+        self.own_reserved_coords.update(session_coords)
+        seat_summary = ", ".join(seat_summary_parts)
 
         if session_id in self.sessions:
-            self.sessions[session_id].created_at = last_activity
+            session = self.sessions[session_id]
+            session.created_at = last_activity
+            session.seats = seat_list
         else:
             session = TrackedSession(
                 transaction_id=session_id,
@@ -503,11 +498,8 @@ class ConcertMainWindow(QMainWindow):
 
     @Slot(str)
     def _on_poll_error(self, error_msg: str) -> None:
-        """Handle poll error: update status bar and log the error.
-
-        Args:
-            error_msg: Error message string from the worker.
-        """
+        if self._closing:
+            return
         self.status_bar.showMessage(f"Poll error: {error_msg}")
         self._toolbar_status.setText("Disconnected")
         self._toolbar_status.setObjectName("status-disconnected")
@@ -543,6 +535,8 @@ class ConcertMainWindow(QMainWindow):
 
     @Slot(str, int, int, str)
     def _on_seat_clicked(self, section: str, row: int, col: int, state: str) -> None:
+        if self._closing:
+            return
         if (section, row, col) in self._click_inflight:
             return
 
@@ -576,6 +570,8 @@ class ConcertMainWindow(QMainWindow):
     # ════════════════════════════════════════════════════════════════════════
 
     def _on_click_reserve_success(self, section: str, row: int, col: int, response: dict) -> None:
+        if self._closing:
+            return
         self._click_inflight.discard((section, row, col))
         tx_id = response["transaction_id"]
         ttl = response["ttl"]
@@ -595,6 +591,8 @@ class ConcertMainWindow(QMainWindow):
         self._render_all()
 
     def _on_click_reserve_error(self, section: str, row: int, col: int, error_msg: str) -> None:
+        if self._closing:
+            return
         self._click_inflight.discard((section, row, col))
         self._render_seat_map()
         self.status_bar.showMessage(
@@ -654,11 +652,8 @@ class ConcertMainWindow(QMainWindow):
 
     @Slot(str)
     def _on_confirm(self, tx_id: str) -> None:
-        """Dispatch a confirm request for a transaction on a background thread.
-
-        Args:
-            tx_id: Transaction ID to confirm.
-        """
+        if self._closing:
+            return
         if not tx_id:
             self.status_bar.showMessage("No transaction ID to confirm")
             return
@@ -669,14 +664,8 @@ class ConcertMainWindow(QMainWindow):
 
     @Slot(dict)
     def _on_confirm_success(self, response: dict) -> None:
-        """Handle confirm success: mark session CONFIRMED, move coords to sold.
-
-        Moves the confirmed seats from own_reserved_coords to own_sold_coords
-        so they display as SOLD (red) on the map and appear in the Sold Seats tab.
-
-        Args:
-            response: Server response dict.
-        """
+        if self._closing:
+            return
         tx_id = response.get("transaction_id", "")
         if tx_id in self.sessions:
             session = self.sessions[tx_id]
@@ -694,11 +683,8 @@ class ConcertMainWindow(QMainWindow):
 
     @Slot(str)
     def _on_confirm_error(self, error_msg: str) -> None:
-        """Handle confirm error.
-
-        Args:
-            error_msg: Error message from the worker.
-        """
+        if self._closing:
+            return
         self.status_bar.showMessage(f"Confirm failed: {error_msg}")
         self._log_event("ERROR", f"Confirm failed: {error_msg}")
 
@@ -708,11 +694,8 @@ class ConcertMainWindow(QMainWindow):
 
     @Slot(str)
     def _on_cancel(self, tx_id: str) -> None:
-        """Dispatch a cancel request for a transaction on a background thread.
-
-        Args:
-            tx_id: Transaction ID to cancel.
-        """
+        if self._closing:
+            return
         if not tx_id:
             self.status_bar.showMessage("No transaction ID to cancel")
             return
@@ -723,15 +706,8 @@ class ConcertMainWindow(QMainWindow):
 
     @Slot(dict)
     def _on_cancel_success(self, response: dict) -> None:
-        """Handle cancel success: mark session CANCELLED, remove own coords.
-
-        Updates the tracking state and removes previously owned coordinates
-        from the own_reserved_coords set so they revert to plain AVAILABLE
-        on the next poll refresh.
-
-        Args:
-            response: Server response dict.
-        """
+        if self._closing:
+            return
         tx_id = response.get("transaction_id", "")
         if tx_id in self.sessions:
             self.sessions[tx_id].state = "CANCELLED"
@@ -742,11 +718,8 @@ class ConcertMainWindow(QMainWindow):
 
     @Slot(str)
     def _on_cancel_error(self, error_msg: str) -> None:
-        """Handle cancel error.
-
-        Args:
-            error_msg: Error message from the worker.
-        """
+        if self._closing:
+            return
         self.status_bar.showMessage(f"Cancel failed: {error_msg}")
         self._log_event("ERROR", f"Cancel failed: {error_msg}")
 
@@ -897,15 +870,10 @@ class ConcertMainWindow(QMainWindow):
         return snapshot
 
     def closeEvent(self, event) -> None:
-        """Warn the user before closing if there are active reservations.
+        self.poll_timer.stop()
+        self.ttl_timer.stop()
+        self._closing = True
 
-        Checks all tracked sessions for ACTIVE state. If any exist, shows a
-        QMessageBox with Discard/Cancel options. Discard accepts the close;
-        Cancel ignores it.
-
-        Args:
-            event: The QCloseEvent from Qt.
-        """
         active_sessions = [
             tx_id for tx_id, s in self.sessions.items() if s.state == "ACTIVE"
         ]
@@ -925,7 +893,10 @@ class ConcertMainWindow(QMainWindow):
             if reply == QMessageBox.Discard:
                 event.accept()
             else:
+                self._closing = False
+                self._setup_polling()
                 event.ignore()
+                return
         else:
             event.accept()
 

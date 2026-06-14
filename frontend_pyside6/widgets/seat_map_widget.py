@@ -178,25 +178,10 @@ class SeatMapWidget(QTableWidget):
         self.viewport().update()
 
     def _resolve_display_state(self, row: int, col: int, server_state: str) -> str:
-        """Map server state to display state, honoring overlays.
-
-        Priority order:
-          1. PENDING overlay (local pre-reserve selection)
-          2. OWN_RESERVED (server-side or detected via own_coords)
-          3. Raw server state
-
-        Args:
-            row: Row index of the seat.
-            col: Column index of the seat.
-            server_state: Raw state string from the server.
-
-        Returns:
-            Display state string suitable for SEAT_COLORS lookup.
-        """
         if (row, col) in self._pending_coords:
             return "PENDING"
-        if server_state == "OWN_RESERVED":
+        if (row, col) in self._own_reserved_coords:
             return "OWN_RESERVED"
-        if server_state == "RESERVED" and (row, col) in self._own_reserved_coords:
+        if server_state == "OWN_RESERVED":
             return "OWN_RESERVED"
         return server_state
