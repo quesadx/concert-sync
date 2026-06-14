@@ -545,11 +545,7 @@ class TransactionalThread(threading.Thread):
             if session.state != ReservationStatus.ACTIVE:
                 return failure_transaction_not_active(session_id, session.state.value)
 
-            seats_by_section = self._group_seats_by_section(session.seats)
-            ordered_sections = self._ordered_sections(seats_by_section.keys())
-            released_counts = {section: 0 for section in ordered_sections}
-
-            with self.server.mutex_manager.table_and_sections(ordered_sections):
+            with self.server.mutex_manager.table_and_sections(list(Section)):
                 # Double-check session still ACTIVE inside lock
                 current_session = self.server.session_manager.get_by_session_id(
                     session_id
@@ -565,6 +561,10 @@ class TransactionalThread(threading.Thread):
                     return failure_transaction_not_active(
                         session_id, current_session.state.value
                     )
+
+                seats_by_section = self._group_seats_by_section(current_session.seats)
+                ordered_sections = self._ordered_sections(seats_by_section.keys())
+                released_counts = {section: 0 for section in ordered_sections}
 
                 for section in ordered_sections:
                     for row, col in seats_by_section[section]:
