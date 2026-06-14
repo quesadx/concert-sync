@@ -1,15 +1,9 @@
 """PySide6 main window for the ConcertSync seat reservation GUI.
 
-Assembles all Plan 03 widgets (ConnectionPanel, SectionStatsWidget,
-TransactionPanel, SeatMapWidget, EventLogWidget) and Plan 03 workers
-(ReserveSelectedWorker, ConfirmWorker, CancelWorker, PollWorker) into a
-single QMainWindow with signal-slot wiring, QTimer-based 1-second polling,
-session tracking mirroring the Textual TUI, and dual-frontend support
-via desktop_launcher.py.
-
-Port of frontend_tui/app.py ConcertTextualApp (lines 82-126 state init,
-220-240 compose/layout, 259-301 seat clicks, 332-448 polling, 549-565
-session tracking) to PySide6.
+Click-to-reserve: clicking an AVAILABLE seat immediately reserves it via
+the server (RESERVE action). Own seats show as blue (OWN_RESERVED), other
+users' reservations show as orange (RESERVED). Live polling at 1s updates
+the seat map across all connected clients.
 """
 
 from __future__ import annotations
@@ -44,7 +38,7 @@ from frontend_pyside6.workers.network_worker import (
     CancelWorker,
     ConfirmWorker,
     PollWorker,
-    ReserveSelectedWorker,
+    ReserveWorker,
     run_worker,
 )
 from frontend_pyside6.widgets.connection_panel import ConnectionPanel
@@ -72,7 +66,7 @@ class ConcertMainWindow(QMainWindow):
         connected_host: Hostname of the connected server.
         connected_port: Port of the connected server.
         sessions: Dict mapping transaction_id to TrackedSession.
-        pending_selections: List of dicts with 'section','row','col' keys.
+        _click_inflight: Set of (section, row, col) being reserved (pending server response).
         section_snapshot: Last known section availability counts.
         seat_map_snapshot: Last known full seat map grid.
         own_reserved_coords: Set of (section, row, col) tuples owned by this user.
@@ -102,7 +96,7 @@ class ConcertMainWindow(QMainWindow):
         self.connected_host: str = "localhost"
         self.connected_port: int = 9999
         self.sessions: Dict[str, TrackedSession] = {}
-        self.pending_selections: List[dict] = []
+        self._click_inflight: Set[tuple[str, int, int]] = set()
         self.section_snapshot = {
             "VIP": {"available": 0, "reserved": 0, "sold": 0},
             "PREFERENTIAL": {"available": 0, "reserved": 0, "sold": 0},
@@ -218,21 +212,6 @@ class ConcertMainWindow(QMainWindow):
 
         left_panel.addSpacing(8)
 
-        # ── Selected Seats ──────────────────────────────────────────────────
-        sel_label = QLabel("Selected Seats")
-        sel_label.setObjectName("section-label")
-        left_panel.addWidget(sel_label)
-        self._selected_list = QLabel("None")
-        self._selected_list.setObjectName("selected-list")
-        self._selected_list.setWordWrap(True)
-        left_panel.addWidget(self._selected_list)
-
-        self.reserve_btn = QPushButton("Reserve Selected (0)")
-        self.reserve_btn.setObjectName("accent-btn")
-        left_panel.addWidget(self.reserve_btn)
-
-        left_panel.addSpacing(8)
-
         # ── Reservation Actions ────────────────────────────────────────────
         action_label = QLabel("Manage Reservation")
         action_label.setObjectName("section-label")
@@ -333,7 +312,6 @@ class ConcertMainWindow(QMainWindow):
         # ── Signal-slot wiring ────────────────────────────────────────────
         self.connection_panel.connect_requested.connect(self._connect_client)
         self.connection_panel.disconnect_requested.connect(self._disconnect_client)
-        self.reserve_btn.clicked.connect(self._on_reserve_selected)
 
         # Default to VIP section
         self._switch_section("VIP")
@@ -384,7 +362,7 @@ class ConcertMainWindow(QMainWindow):
         # Clear state from any previous user session to prevent stale OWN_RESERVED highlights
         self.own_reserved_coords.clear()
         self.sessions.clear()
-        self.pending_selections.clear()
+        self._click_inflight.clear()
 
         self.user_id = user_id
 
@@ -420,7 +398,7 @@ class ConcertMainWindow(QMainWindow):
         """
         self.client = None
         self.sessions.clear()
-        self.pending_selections.clear()
+        self._click_inflight.clear()
         self.own_reserved_coords.clear()
         self.section_snapshot = {
             "VIP": {"available": 0, "reserved": 0, "sold": 0},
@@ -565,116 +543,64 @@ class ConcertMainWindow(QMainWindow):
 
     @Slot(str, int, int, str)
     def _on_seat_clicked(self, section: str, row: int, col: int, state: str) -> None:
-        """Handle a seat click: toggle selection for AVAILABLE seats, deselect PENDING.
+        if (section, row, col) in self._click_inflight:
+            return
 
-        Args:
-            section: Section name (VIP, PREFERENTIAL, GENERAL).
-            row: Row index (0-based).
-            col: Column index (0-based).
-            state: Server state string for the clicked seat.
-        """
-        # Check if already in pending selections (works regardless of displayed state)
-        existing_idx = None
-        for i, s in enumerate(self.pending_selections):
-            if s["section"] == section and s["row"] == row and s["col"] == col:
-                existing_idx = i
-                break
-
-        if existing_idx is not None:
-            # Clicking a pending seat removes it from selection
-            self.pending_selections.pop(existing_idx)
-            self.status_bar.showMessage(f"Deselected {section}({row},{col})")
-            self._render_seat_map()
-            self._update_reserve_button()
-            self._update_selected_list()
+        if state == "OWN_RESERVED":
+            self.status_bar.showMessage(
+                f"Your seat {section}({row},{col}) - use Confirm/Cancel in the panel"
+            )
             return
 
         if state != "AVAILABLE":
             self.status_bar.showMessage(
-                f"Seat {section}({row},{col}) — state: {state} (not selectable)"
+                f"Seat {section}({row},{col}) - state: {state} (not available)"
             )
             return
 
-        self.pending_selections.append({"section": section, "row": row, "col": col})
-        self.status_bar.showMessage(
-            f"Selected {section}({row},{col}) — {len(self.pending_selections)} pending"
-        )
-
+        self._click_inflight.add((section, row, col))
         self._render_seat_map()
-        self._update_reserve_button()
-        self._update_selected_list()
+        self.status_bar.showMessage(f"Reserving {section}({row},{col})...")
 
-    # ════════════════════════════════════════════════════════════════════════
-    # Reserve Selected (unified batch mode — RSRV-01)
-    # ════════════════════════════════════════════════════════════════════════
-
-    @Slot()
-    def _on_reserve_selected(self) -> None:
-        """Dispatch a batch reservation for all pending seat selections.
-
-        Always uses ConcertClient.reserve_selected() which sends RESERVE_SELECTED,
-        the unified batch reservation mode (RSRV-01 fix). Dispatches work on a
-        background thread via ReserveSelectedWorker.
-        """
-        if len(self.pending_selections) == 0:
-            self.status_bar.showMessage("No seats selected for reservation")
-            return
-
-        worker = ReserveSelectedWorker(self.client, self.pending_selections)
-        worker.finished.connect(self._on_reserve_success)
-        worker.error.connect(self._on_reserve_error)
+        worker = ReserveWorker(self.client, section, row, col)
+        worker.finished.connect(
+            lambda resp, s=section, r=row, c=col: self._on_click_reserve_success(s, r, c, resp)
+        )
+        worker.error.connect(
+            lambda msg, s=section, r=row, c=col: self._on_click_reserve_error(s, r, c, msg)
+        )
         run_worker(worker)
 
-    @Slot(dict)
-    def _on_reserve_success(self, response: dict) -> None:
-        """Handle successful reservation: track session and own coords.
+    # ════════════════════════════════════════════════════════════════════════
+    # Click-to-Reserve (inmediato al hacer clic)
+    # ════════════════════════════════════════════════════════════════════════
 
-        Extracts transaction_id and TTL, builds seat summary, creates/merges
-        a TrackedSession, records own reserved coordinates, and refreshes UI.
-        When extending an existing session, new seats are appended rather than
-        replacing the old set, and the TTL resets to full.
-
-        Args:
-            response: Server response dict with transaction_id, ttl, etc.
-        """
+    def _on_click_reserve_success(self, section: str, row: int, col: int, response: dict) -> None:
+        self._click_inflight.discard((section, row, col))
         tx_id = response["transaction_id"]
         ttl = response["ttl"]
+        seat_summary = f"{section}({row},{col})"
 
-        seat_objects = list(self.pending_selections)
-        seat_summary = ", ".join(
-            f"{s['section']}({s['row']},{s['col']})" for s in seat_objects
-        )
-
-        session = self._track_session(tx_id, "RESERVE_BATCH", seat_summary, ttl)
-        # Append new seats to existing session rather than replacing
-        existing_coords = {(s["section"], s["row"], s["col"]) for s in session.seats}
-        for s in seat_objects:
-            coord = {"section": s["section"], "row": s["row"], "col": s["col"]}
-            if (s["section"], s["row"], s["col"]) not in existing_coords:
+        self._track_session(tx_id, "RESERVE", seat_summary, ttl)
+        session = self.sessions.get(tx_id)
+        if session is not None:
+            coord = {"section": section, "row": row, "col": col}
+            if coord not in session.seats:
                 session.seats.append(coord)
-
-        for s in seat_objects:
-            self.own_reserved_coords.add((s["section"], s["row"], s["col"]))
-
-        count = len(seat_objects)
-        self.pending_selections = []
-
-        # Auto-fill the transaction ID in the transaction panel for one-click confirm/cancel
+        self.own_reserved_coords.add((section, row, col))
         self.tx_input.setText(tx_id)
 
-        self._log_event("LOCAL", f"Reserved {count} seats — TX:{tx_id}")
-        self.status_bar.showMessage(f"Reserved {count} seats — TX:{tx_id}")
+        self._log_event("LOCAL", f"Reserved {seat_summary} — TX:{tx_id}")
+        self.status_bar.showMessage(f"Reserved {seat_summary}")
         self._render_all()
 
-    @Slot(str)
-    def _on_reserve_error(self, error_msg: str) -> None:
-        """Handle reservation error: show status and log.
-
-        Args:
-            error_msg: Error message from the worker.
-        """
-        self.status_bar.showMessage(f"Reserve failed: {error_msg}")
-        self._log_event("ERROR", f"Reserve failed: {error_msg}")
+    def _on_click_reserve_error(self, section: str, row: int, col: int, error_msg: str) -> None:
+        self._click_inflight.discard((section, row, col))
+        self._render_seat_map()
+        self.status_bar.showMessage(
+            f"Could not reserve {section}({row},{col}) : {error_msg}"
+        )
+        self._log_event("ERROR", f"Click reserve failed: {error_msg}")
 
     # ════════════════════════════════════════════════════════════════════════
     # Session Tracking (mirrors TUI _track_session, app.py 549-565)
@@ -829,20 +755,11 @@ class ConcertMainWindow(QMainWindow):
     # ════════════════════════════════════════════════════════════════════════
 
     def _render_all(self) -> None:
-        """Refresh all widgets: section stats, seat map, sessions, and log tail.
+        """Refresh all widgets: seat map, sessions, and log tail.
 
         Called on every poll success and after reservation/confirm/cancel.
         """
-        # Compute pending counts per section
-        pending_counts: dict[str, int] = {"VIP": 0, "PREFERENTIAL": 0, "GENERAL": 0}
-        for s in self.pending_selections:
-            section = s.get("section", "")
-            if section in pending_counts:
-                pending_counts[section] += 1
-
         self._render_seat_map()
-        self._update_reserve_button()
-        self._update_selected_list()
 
         # Sync dialog contents if open
         if self.log_dialog is not None and self.log_dialog.isVisible():
@@ -868,8 +785,8 @@ class ConcertMainWindow(QMainWindow):
             "PREFERENTIAL": set(),
             "GENERAL": set(),
         }
-        for s in self.pending_selections:
-            pending_by_section[s["section"]].add((s["row"], s["col"]))
+        for s_name, r, c in self._click_inflight:
+            pending_by_section[s_name].add((r, c))
 
         own_by_section: Dict[str, Set[tuple[int, int]]] = {
             "VIP": set(),
@@ -904,22 +821,6 @@ class ConcertMainWindow(QMainWindow):
                 own_by_section.get(section_name, set()),
                 own_cell_ttl=ttl_by_section.get(section_name, {}),
             )
-
-    def _update_reserve_button(self) -> None:
-        """Update the Reserve button text to show pending selection count."""
-        count = len(self.pending_selections)
-        self.reserve_btn.setText(f"Reserve Selected ({count})")
-
-    def _update_selected_list(self) -> None:
-        """Update the Selected Seats label with human-readable seat list."""
-        if not self.pending_selections:
-            self._selected_list.setText("None")
-            return
-        lines = [
-            f"{s['section']}({s['row']},{s['col']})"
-            for s in self.pending_selections
-        ]
-        self._selected_list.setText("<br>".join(lines))
 
     def _set_ttl_display(self, session: object | None) -> None:
         """Update the prominent TTL countdown label."""
@@ -1029,18 +930,7 @@ class ConcertMainWindow(QMainWindow):
             event.accept()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        """Handle keyboard shortcuts.
-
-        Ctrl+R: Trigger Reserve Selected action.
-        Ctrl+Q: Close the window.
-        All other keys: delegate to default handler.
-
-        Args:
-            event: The QKeyEvent from Qt.
-        """
-        if event.key() == Qt.Key_R and event.modifiers() & Qt.ControlModifier:
-            self._on_reserve_selected()
-        elif event.key() == Qt.Key_Q and event.modifiers() & Qt.ControlModifier:
+        if event.key() == Qt.Key_Q and event.modifiers() & Qt.ControlModifier:
             self.close()
         else:
             super().keyPressEvent(event)
