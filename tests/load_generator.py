@@ -34,11 +34,12 @@ class LoadResult:
 class LoadGenerator:
     SECTIONS = ["VIP", "PREFERENTIAL", "GENERAL"]
 
-    def __init__(self, host="localhost", port=9999, num_requests=100, conflicts=False):
+    def __init__(self, host="localhost", port=9999, num_requests=100, conflicts=False, delay=0):
         self.host = host
         self.port = port
         self.num_requests = num_requests
         self.conflicts = conflicts
+        self.delay = delay
         self.results: List[LoadResult] = []
         self.lock = threading.Lock()
         self.conflict_seats: List[Tuple[str, int, int]] = []
@@ -140,7 +141,11 @@ class LoadGenerator:
 
     def run(self) -> List[LoadResult]:
         with ThreadPoolExecutor(max_workers=min(50, self.num_requests)) as pool:
-            futures = [pool.submit(self._execute_one, i) for i in range(self.num_requests)]
+            futures = []
+            for i in range(self.num_requests):
+                futures.append(pool.submit(self._execute_one, i))
+                if self.delay > 0:
+                    time.sleep(self.delay)
             for f in as_completed(futures):
                 result = f.result()
                 with self.lock:
@@ -238,16 +243,20 @@ def main():
                         help="Number of concurrent requests (100/200/500+)")
     parser.add_argument("--conflicts", action="store_true",
                         help="Enable conflicting scenarios (same seat targeted by multiple threads)")
+    parser.add_argument("--delay", type=float, default=0,
+                        help="Seconds to wait between each request (e.g. 0.5 for slow fill)")
     args = parser.parse_args()
 
     print(f"ConcertSync Load Generator")
     print(f"  Target:  {args.host}:{args.port}")
     print(f"  Requests: {args.requests}")
     print(f"  Conflicts: {'ON' if args.conflicts else 'OFF'}")
+    print(f"  Delay: {args.delay}s between requests")
     print(f"  Starting at: {datetime.now().isoformat()}")
 
     gen = LoadGenerator(host=args.host, port=args.port,
-                        num_requests=args.requests, conflicts=args.conflicts)
+                        num_requests=args.requests, conflicts=args.conflicts,
+                        delay=args.delay)
     results = gen.run()
     gen.print_results()
 
