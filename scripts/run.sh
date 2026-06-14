@@ -187,8 +187,16 @@ case "$MODE" in
       .venv/bin/python -m pytest "$@"
     fi
     ;;
+  load-test)
+    ensure_package pytest
+    uv run python tests/load_generator.py "$@"
+    ;;
+  stress-test)
+    ensure_package pytest
+    uv run python tests/load_generator.py --requests 500 --conflicts "$@"
+    ;;
   *)
-    printf 'usage: %s [server|tui|both|client|dashboard|multi|test] [args...]\n' "$0" >&2
+    printf 'usage: %s [server|tui|both|client|dashboard|multi|test|load-test|stress-test] [args...]\n' "$0" >&2
     exit 2
     ;;
 esac
