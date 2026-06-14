@@ -44,6 +44,10 @@ class TestShutdownCleanup:
             s.bind(("localhost", 0))
             port = s.getsockname()[1]
 
+        _db = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "concert_sync.db")
+        try: os.remove(_db)
+        except FileNotFoundError: pass
+
         server = ConcertServer(port=port)
         server.start()
         try:
@@ -61,6 +65,10 @@ class TestShutdownCleanup:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind(("localhost", 0))
             port = s.getsockname()[1]
+
+        _db = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "concert_sync.db")
+        try: os.remove(_db)
+        except FileNotFoundError: pass
 
         server = ConcertServer(port=port)
         server.start()
@@ -84,6 +92,10 @@ class TestShutdownCleanup:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind(("localhost", 0))
             port = s.getsockname()[1]
+
+        _db = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "concert_sync.db")
+        try: os.remove(_db)
+        except FileNotFoundError: pass
 
         server = ConcertServer(port=port)
         server.start()
@@ -110,6 +122,10 @@ class TestLogFormat:
             s.bind(("localhost", 0))
             port = s.getsockname()[1]
 
+        _db = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "concert_sync.db")
+        try: os.remove(_db)
+        except FileNotFoundError: pass
+
         server = ConcertServer(port=port)
         server.start()
         try:
@@ -127,6 +143,10 @@ class TestLogFormat:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind(("localhost", 0))
             port = s.getsockname()[1]
+
+        _db = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "concert_sync.db")
+        try: os.remove(_db)
+        except FileNotFoundError: pass
 
         server = ConcertServer(port=port)
         server.start()
@@ -151,6 +171,10 @@ class TestDisconnectDetection:
             s.bind(("localhost", 0))
             port = s.getsockname()[1]
 
+        _db = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "concert_sync.db")
+        try: os.remove(_db)
+        except FileNotFoundError: pass
+
         server = ConcertServer(port=port)
         server.start()
         try:
@@ -169,6 +193,10 @@ class TestDisconnectDetection:
             s.bind(("localhost", 0))
             port1 = s.getsockname()[1]
 
+        _db = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "concert_sync.db")
+        try: os.remove(_db)
+        except FileNotFoundError: pass
+
         server1 = ConcertServer(port=port1)
         server1.start()
         try:
@@ -182,6 +210,10 @@ class TestDisconnectDetection:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind(("localhost", 0))
             port2 = s.getsockname()[1]
+
+        _db = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "concert_sync.db")
+        try: os.remove(_db)
+        except FileNotFoundError: pass
 
         server2 = ConcertServer(port=port2)
         server2.start()
@@ -201,6 +233,10 @@ class TestSaturatedZone:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind(("localhost", 0))
             port = s.getsockname()[1]
+
+        _db = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "concert_sync.db")
+        try: os.remove(_db)
+        except FileNotFoundError: pass
 
         server = ConcertServer(port=port)
         server.start()
@@ -222,6 +258,10 @@ class TestSaturatedZone:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind(("localhost", 0))
             port = s.getsockname()[1]
+
+        _db = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "concert_sync.db")
+        try: os.remove(_db)
+        except FileNotFoundError: pass
 
         server = ConcertServer(port=port)
         server.start()

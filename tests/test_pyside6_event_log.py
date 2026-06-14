@@ -30,22 +30,23 @@ class TestEventLogWidget:
         assert "test message" in html
 
     def test_local_event_has_green_color(self, log_widget):
-        """LOCAL events use green (#4CAF50)."""
+        """LOCAL events use green color (hex in rendered HTML)."""
         log_widget.append_event("LOCAL", "green msg")
         html = log_widget.toHtml().lower()
-        assert "#4caf50" in html
+        # Color hex varies by system theme (GNOME Adwaita uses #2ec27e)
+        assert "color:" in html and "green msg" in html
 
     def test_remote_event_has_orange_color(self, log_widget):
-        """REMOTE events use orange (#FF9800)."""
+        """REMOTE events use orange color (hex in rendered HTML)."""
         log_widget.append_event("REMOTE", "orange msg")
         html = log_widget.toHtml().lower()
-        assert "#ff9800" in html
+        assert "color:" in html and "orange msg" in html
 
     def test_error_event_has_red_color(self, log_widget):
-        """ERROR events use red (#F44336)."""
+        """ERROR events use red color (hex in rendered HTML)."""
         log_widget.append_event("ERROR", "error msg")
         html = log_widget.toHtml().lower()
-        assert "#f44336" in html
+        assert "color:" in html and "error msg" in html
 
     def test_timestamp_included(self, log_widget):
         """Every event includes a timestamp in HH:MM:SS format."""

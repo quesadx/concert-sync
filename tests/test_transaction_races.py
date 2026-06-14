@@ -54,6 +54,11 @@ def _expire_session_by_id(server, session_id):
 
 
 def test_confirm_vs_expire_keeps_consistency():
+    import os
+    try:
+        os.remove("data/concert_sync.db")
+    except FileNotFoundError:
+        pass
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("localhost", 0))
         port = s.getsockname()[1]
@@ -63,7 +68,7 @@ def test_confirm_vs_expire_keeps_consistency():
     time.sleep(0.5)
 
     try:
-        client = ConcertClient(host="localhost", port=port)
+        client = ConcertClient(user_id="test_user", host="localhost", port=port)
 
         reserve_response = client.reserve_seat("VIP", 0, 3)
         tx_id = reserve_response["transaction_id"]
@@ -91,6 +96,11 @@ def test_confirm_vs_expire_keeps_consistency():
 
 
 def test_cancel_vs_expire_releases_once():
+    import os
+    try:
+        os.remove("data/concert_sync.db")
+    except FileNotFoundError:
+        pass
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("localhost", 0))
         port = s.getsockname()[1]
@@ -100,7 +110,7 @@ def test_cancel_vs_expire_releases_once():
     time.sleep(0.5)
 
     try:
-        client = ConcertClient(host="localhost", port=port)
+        client = ConcertClient(user_id="test_user", host="localhost", port=port)
 
         reserve_response = client.reserve_seat("VIP", 0, 4)
         tx_id = reserve_response["transaction_id"]
