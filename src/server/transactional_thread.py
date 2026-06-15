@@ -4,7 +4,7 @@ import threading
 from collections import defaultdict
 
 from src.utils.config import RESERVATION_TTL, SECTION_CONFIG
-from src.utils.enums import ReservationStatus, Section, SeatState
+from src.utils.enums import NotificationType, ReservationStatus, Section, SeatState
 from src.utils.protocol_validator import (
     validate_request,
     validate_reserve_payload,
@@ -392,6 +392,16 @@ class TransactionalThread(threading.Thread):
 
             self.server.store.save_all_seats(self.server.seat_matrix)
             self.server.store.delete_session(confirmed_user_id)
+
+            self.server.notification_manager.append(
+                confirmed_user_id,
+                NotificationType.CONFIRMED,
+                "[NOTIFICACIÓN]\nCompra confirmada correctamente.",
+            )
+            self.server.global_log.append(
+                "NOTIFICATION",
+                f"Session:{session_id} User:{confirmed_user_id} CONFIRMED notification sent",
+            )
 
             return build_success_response(transaction_id=session_id)
 
