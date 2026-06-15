@@ -18,3 +18,7 @@ pyside6 = [
 tui = [
     "textual>=0.70.0",
 ]
+tickets = [
+    "qrcode>=7.4",
+    "pillow>=10.0",
+]
