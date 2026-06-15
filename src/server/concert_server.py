@@ -15,6 +15,7 @@ from src.shared_resources.sqlite_store import SqliteStore
 from src.synchronization.mutex_manager import MutexManager
 from src.utils.config import SERVER_PORT
 from src.utils.enums import ReservationStatus, SeatState, Section
+from src.utils.ticket_generator import TicketGenerator
 
 
 class ConcertServer:
@@ -29,6 +30,7 @@ class ConcertServer:
         self.session_manager = SessionManager()
         self.store = SqliteStore()
         self.notification_manager = NotificationManager(self.global_log)
+        self.ticket_generator = TicketGenerator(self.global_log)
         self.notifier_thread = None
 
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

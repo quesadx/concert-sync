@@ -1,6 +1,7 @@
 import json
 import socket
 import threading
+import time
 from collections import defaultdict
 
 from src.utils.config import RESERVATION_TTL, SECTION_CONFIG
@@ -421,6 +422,21 @@ class TransactionalThread(threading.Thread):
             self.server.global_log.append(
                 "NOTIFICATION",
                 f"Session:{session_id} User:{confirmed_user_id} CONFIRMED notification sent",
+            )
+
+            # Start background ticket generation after successful CONFIRM
+            ticket_id = self.server.notification_manager.generate_ticket_id()
+            seat_list = [(r, c) for section, r, c in current_session.seats]
+            section_name = "+".join(s.name for s in ordered_sections) if ordered_sections else "UNKNOWN"
+            ticket_thread = threading.Thread(
+                target=self.server.ticket_generator.generate_ticket,
+                args=(ticket_id, section_name, seat_list, session_id, time.time()),
+                daemon=True,
+            )
+            ticket_thread.start()
+            self.server.global_log.append(
+                "TICKET",
+                f"Ticket {ticket_id} generation started for Session:{session_id}",
             )
 
             return build_success_response(transaction_id=session_id)
