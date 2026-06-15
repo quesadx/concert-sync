@@ -12,6 +12,7 @@ Usage:
     run_worker(worker)  # dispatches do_work() on daemon thread
 """
 
+import socket
 import threading
 import weakref
 
@@ -166,6 +167,69 @@ class PollWorker(QObject):
             self.finished.emit(sections, seat_map_payload, user_session)
         except ConcertClientError as e:
             self.error.emit(str(e))
+
+
+class SubscribeNotificationsWorker(QObject):
+    """Subscribes to push notifications and returns the long-lived socket."""
+
+    finished = Signal(object)  # subscription socket
+    error = Signal(str)
+
+    def __init__(self, client: ConcertClient) -> None:
+        """Initialize the subscription worker.
+
+        Args:
+            client: Connected ConcertClient instance.
+        """
+        super().__init__()
+        self.client = client
+
+    def do_work(self) -> None:
+        """Execute subscribe_notifications on a background thread."""
+        try:
+            sub_sock = self.client.subscribe_notifications(self.client.user_id)
+            self.finished.emit(sub_sock)
+        except ConcertClientError as e:
+            self.error.emit(str(e))
+
+
+class ReadNotificationWorker(QObject):
+    """Reads a single notification from the subscription socket (non-blocking)."""
+
+    finished = Signal(dict)  # notification dict
+
+    def __init__(self, sub_sock: socket.socket) -> None:
+        """Initialize with the subscription socket.
+
+        Args:
+            sub_sock: Socket returned by subscribe_notifications.
+        """
+        super().__init__()
+        self.sub_sock = sub_sock
+
+    def do_work(self) -> None:
+        """Read one notification with a short timeout."""
+        import json as _json
+
+        try:
+            self.sub_sock.settimeout(0.1)
+            data = self.sub_sock.recv(4096)
+            if not data:
+                return
+            raw = data.decode().strip()
+            if not raw:
+                return
+            for line in raw.split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                notif = _json.loads(line)
+                if isinstance(notif, dict) and notif.get("type") == "NOTIFICATION":
+                    self.finished.emit(notif)
+        except socket.timeout:
+            pass
+        except Exception:
+            pass
 
 
 def run_worker(worker: QObject) -> None:
