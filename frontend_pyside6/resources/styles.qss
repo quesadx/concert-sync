@@ -165,6 +165,15 @@ QLabel#ttl-display {
     border-radius: 4px;
 }
 
+/* ── Notification Feed ───────────────────────────────────────────────────── */
+QLabel#notif-display {
+    font-size: 12px;
+    padding: 6px;
+    background-color: #1a1a2a;
+    border-radius: 4px;
+    color: #d5d5cf;
+}
+
 /* ── Sold Header ──────────────────────────────────────────────────────────── */
 QLabel#sold-header {
     font-size: 14px;

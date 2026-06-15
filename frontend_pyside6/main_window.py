@@ -251,6 +251,20 @@ class ConcertMainWindow(QMainWindow):
 
         left_panel.addSpacing(8)
 
+        # ── Notification Feed ──────────────────────────────────────────────
+        notif_label = QLabel("Notifications")
+        notif_label.setObjectName("section-label")
+        left_panel.addWidget(notif_label)
+        self._notif_display = QLabel("No notifications yet")
+        self._notif_display.setObjectName("notif-display")
+        self._notif_display.setWordWrap(True)
+        self._notif_display.setMinimumHeight(60)
+        self._notif_display.setMaximumHeight(120)
+        self._notif_display.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        left_panel.addWidget(self._notif_display)
+
+        left_panel.addSpacing(8)
+
         # ── Activity Center button ──────────────────────────────────────────
         self.view_logs_btn = QPushButton("Activity Center")
         self.view_logs_btn.clicked.connect(self._show_log_window)
@@ -495,12 +509,13 @@ class ConcertMainWindow(QMainWindow):
 
     @Slot(dict)
     def _on_notification(self, notif: dict) -> None:
-        """Display a push notification in the event log."""
+        """Display a push notification in the event log and notification feed."""
         if self._closing:
             return
         ntype = notif.get("notification_type", "UNKNOWN")
         msg = notif.get("message", "")
         self._log_event("NOTIFICATION", f"[{ntype}] {msg}")
+        self._notif_display.setText(f"[{ntype}]\n{msg}")
 
     @Slot(dict, dict, object)
     def _on_poll_success(self, sections: dict, seat_map_payload: dict, user_session: object) -> None:
@@ -736,6 +751,7 @@ class ConcertMainWindow(QMainWindow):
 
         self._log_event("LOCAL", f"Confirmed TX:{tx_id}")
         self.status_bar.showMessage(f"Confirmed TX:{tx_id} — Ticket saved in tickets/ directory")
+        self._notif_display.setText("[TICKET]\nTicket generado — tickets/ticket_tkt-*.txt + .png")
         self._render_all()
 
     @Slot(str)
