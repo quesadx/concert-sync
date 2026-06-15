@@ -89,7 +89,7 @@ class ConcertMainWindow(QMainWindow):
 
         # ── Stylesheet (WARNING #1 fix) ──────────────────────────────────
         stylesheet_path = Path(__file__).parent / "resources" / "styles.qss"
-        stylesheet = stylesheet_path.read_text()
+        stylesheet = stylesheet_path.read_text(encoding="utf-8")
         app = QApplication.instance()
         if app:
             app.setStyleSheet(stylesheet)
