@@ -21,4 +21,7 @@ class SemaphoreManager:
 
     def release_multiple(self, section, count):
         for _ in range(count):
-            self.s_sections[section].release()
+            try:
+                self.s_sections[section].release()
+            except ValueError:
+                pass

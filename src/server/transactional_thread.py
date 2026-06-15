@@ -1,15 +1,18 @@
 import json
+import socket
 import threading
+import time
 from collections import defaultdict
 
 from src.utils.config import RESERVATION_TTL, SECTION_CONFIG
-from src.utils.enums import ReservationStatus, Section, SeatState
+from src.utils.enums import NotificationType, ReservationStatus, Section, SeatState
 from src.utils.protocol_validator import (
     validate_request,
     validate_reserve_payload,
     validate_reserve_batch_payload,
     validate_confirm_payload,
     validate_cancel_payload,
+    validate_subscribe_payload,
     ErrorCode,
 )
 from src.utils.error_responses import (
@@ -37,7 +40,7 @@ class TransactionalThread(threading.Thread):
     def run(self):
         try:
             data = self.client_socket.recv(4096)
-            
+
             # Validate request using protocol validator
             is_valid, error_msg, request = validate_request(data)
             if not is_valid:
@@ -51,6 +54,8 @@ class TransactionalThread(threading.Thread):
                 response = self.handle_reserve(request)
             elif action == "RESERVE_BATCH":
                 response = self.handle_reserve_batch(request)
+            elif action == "RESERVE_SELECTED":
+                response = self.handle_reserve_selected(request)
             elif action == "CONFIRM":
                 response = self.handle_confirm(request)
             elif action == "CANCEL":
@@ -59,6 +64,9 @@ class TransactionalThread(threading.Thread):
                 response = self.handle_query(request)
             elif action == "QUERY_SEAT_MAP":
                 response = self.handle_query_seat_map(request)
+            elif action == "SUBSCRIBE_NOTIFICATIONS":
+                self.handle_subscribe(request)
+                return
             else:
                 response = error_invalid_action(action)
 
@@ -71,10 +79,12 @@ class TransactionalThread(threading.Thread):
             except Exception:
                 pass  # Socket already closed or unreachable
         finally:
-            try:
-                self.client_socket.close()
-            except Exception:
-                pass
+            if not getattr(self, '_socket_transferred', False):
+                try:
+                    self.client_socket.close()
+                except Exception:
+                    pass
+            self.server.unregister_thread(self)
 
     def _group_reservation_seats_by_section(self, reservation):
         """
@@ -102,6 +112,25 @@ class TransactionalThread(threading.Thread):
         section_set = set(sections)
         return [section for section in Section if section in section_set]
 
+    def _notify_availability_if_needed(self, section):
+        section_name = section.name
+        available_count = 0
+        for row in self.server.seat_matrix.seats[section]:
+            for seat in row:
+                if seat == SeatState.AVAILABLE:
+                    available_count += 1
+        was_full = self.server.notification_manager.is_section_full(section_name)
+        self.server.notification_manager.set_section_full(section_name, available_count == 0)
+        if was_full and available_count > 0:
+            message = f"[NOTIFICACIÓN]\nHay nuevos asientos disponibles en la zona {section_name}."
+            self.server.notification_manager.append_to_all(
+                NotificationType.AVAILABILITY,
+                message,
+            )
+            self.server.global_log.append(
+                "NOTIFICATION",
+                f"Section:{section_name} availability notification (was full, now {available_count} available)",
+            )
 
     def handle_reserve(self, request):
         # Validate RESERVE-specific payload
@@ -109,27 +138,33 @@ class TransactionalThread(threading.Thread):
         if not is_valid:
             return build_error_response(ErrorCode.INVALID_PAYLOAD, error_msg)
 
+        semaphore_acquired = False
         try:
+            user_id = request["user_id"]
             section_str = request["section"]
             row = int(request["row"])
             col = int(request["col"])
-            semaphore_acquired = False
-            
+
             # Get section enum
             try:
                 section = Section[section_str]
             except KeyError:
                 return error_invalid_section(section_str)
-            
+
             # Validate coordinates are within bounds (double-check; validator should catch this)
             config = SECTION_CONFIG.get(section, {})
             max_rows = config.get("rows", 0)
             max_cols = config.get("cols", 0)
-            
+
             if row >= max_rows or col >= max_cols:
-                return error_seat_out_of_bounds(section_str, row, col, max_rows, max_cols)
+                return error_seat_out_of_bounds(
+                    section_str, row, col, max_rows, max_cols
+                )
+
+            session = self.server.session_manager.get_or_create(user_id)
 
             with self.server.mutex_manager.table_and_sections([section]):
+                session = self.server.session_manager.get_or_create(user_id)
                 seats = self.server.seat_matrix.seats[section]
 
                 # Validate seat state
@@ -141,184 +176,188 @@ class TransactionalThread(threading.Thread):
                 seats[row][col] = SeatState.RESERVED
 
                 # Try to acquire semaphore slot
-                semaphore_acquired = self.server.semaphore_mgr.acquire(section, blocking=False)
+                semaphore_acquired = self.server.semaphore_mgr.acquire(
+                    section, blocking=False
+                )
                 if not semaphore_acquired:
                     # Rollback: release the seat
                     seats[row][col] = SeatState.AVAILABLE
                     return failure_no_capacity(section_str)
 
-                # Create reservation transaction for this selected seat
-                tx_id = self.server.reservation_table.add_reservation(
-                    section,
-                    [(row, col)],
-                    seat_id=(section, row, col),
-                    locked=True,
-                )
+                session.seats.append((section, row, col))
+                session.reset_ttl()
 
+            session_id = session.session_id
             self.server.global_log.append(
                 "RESERVE",
-                f"TX:{tx_id} Section:{section.name} Seat:[{row},{col}]",
+                f"Session:{session_id} Section:{section.name} Seat:[{row},{col}]",
             )
 
-            return build_success_response(transaction_id=tx_id, ttl=RESERVATION_TTL)
+            self.server.store.save_all_seats(self.server.seat_matrix)
+
+            return build_success_response(
+                transaction_id=session_id, ttl=RESERVATION_TTL
+            )
 
         except Exception as e:
-            # Attempt rollback if something went wrong
             try:
-                section = Section[request["section"]]
-                row = int(request["row"])
-                col = int(request["col"])
-                
-                with self.server.mutex_manager.sections([section]):
-                    seats = self.server.seat_matrix.seats[section]
-                    valid_indices = (
-                        0 <= row < len(seats) and 0 <= col < len(seats[row])
-                    )
-                    if valid_indices and seats[row][col] == SeatState.RESERVED:
-                        seats[row][col] = SeatState.AVAILABLE
-                        if semaphore_acquired:
-                            self.server.semaphore_mgr.release(section)
+                section_str = request.get("section", "")
+                if section_str:
+                    section = Section[section_str]
+                    row = int(request.get("row", -1))
+                    col = int(request.get("col", -1))
+
+                    with self.server.mutex_manager.sections([section]):
+                        seats = self.server.seat_matrix.seats[section]
+                        valid_indices = 0 <= row < len(seats) and 0 <= col < len(seats[row])
+                        if valid_indices and seats[row][col] == SeatState.RESERVED:
+                            seats[row][col] = SeatState.AVAILABLE
+                            if semaphore_acquired:
+                                self.server.semaphore_mgr.release(section)
             except Exception as rollback_error:
-                self.server.global_log.append("ERROR", f"Rollback failed: {str(rollback_error)}")
+                self.server.global_log.append(
+                    "ERROR", f"Rollback failed: {str(rollback_error)}"
+                )
 
             self.server.global_log.append("ERROR", f"RESERVE TX failed: {str(e)}")
             return error_internal(str(e))
 
+    def _do_reserve_batch(self, request, action_label):
+        """Shared logic for RESERVE_BATCH and RESERVE_SELECTED."""
+        user_id = request["user_id"]
+        seats_to_reserve = request.get("seats", [])
+
+        sections_and_seats = {}
+        seat_objects = []
+
+        for seat_obj in seats_to_reserve:
+            section_str = seat_obj["section"]
+            row = int(seat_obj["row"])
+            col = int(seat_obj["col"])
+
+            try:
+                section = Section[section_str]
+            except KeyError:
+                return error_invalid_section(section_str)
+
+            config = SECTION_CONFIG.get(section, {})
+            max_rows = config.get("rows", 0)
+            max_cols = config.get("cols", 0)
+
+            if row >= max_rows or col >= max_cols:
+                return error_seat_out_of_bounds(
+                    section_str, row, col, max_rows, max_cols
+                )
+
+            if section not in sections_and_seats:
+                sections_and_seats[section] = []
+
+            sections_and_seats[section].append((row, col))
+            seat_objects.append({"section": section_str, "row": row, "col": col})
+
+        session = self.server.session_manager.get_or_create(user_id)
+        ordered_sections = self._ordered_sections(sections_and_seats.keys())
+        reserved_seats = []
+        acquired_semaphores = defaultdict(int)
+
+        with self.server.mutex_manager.table_and_sections(ordered_sections):
+            session = self.server.session_manager.get_or_create(user_id)
+
+            for section in ordered_sections:
+                for row, col in sections_and_seats[section]:
+                    current_state = self.server.seat_matrix.seats[section][row][col]
+                    if current_state != SeatState.AVAILABLE:
+                        return failure_seat_not_available(
+                            section.name,
+                            row,
+                            col,
+                            current_state.value,
+                        )
+
+            for section in ordered_sections:
+                for row, col in sections_and_seats[section]:
+                    self.server.seat_matrix.seats[section][row][
+                        col
+                    ] = SeatState.RESERVED
+                    reserved_seats.append((section, row, col))
+
+            for section in ordered_sections:
+                requested_count = len(sections_and_seats[section])
+
+                for _ in range(requested_count):
+                    acquired = self.server.semaphore_mgr.acquire(
+                        section, blocking=False
+                    )
+                    if not acquired:
+                        for r_section, r_row, r_col in reserved_seats:
+                            self.server.seat_matrix.seats[r_section][r_row][
+                                r_col
+                            ] = SeatState.AVAILABLE
+
+                        for (
+                            rollback_section,
+                            rollback_count,
+                        ) in acquired_semaphores.items():
+                            if rollback_count > 0:
+                                self.server.semaphore_mgr.release_multiple(
+                                    rollback_section, rollback_count
+                                )
+
+                        return failure_no_capacity(section.name)
+
+                    acquired_semaphores[section] += 1
+
+            for section in ordered_sections:
+                for row, col in sections_and_seats[section]:
+                    session.seats.append((section, row, col))
+
+            session.reset_ttl()
+
+        session_id = session.session_id
+        self.server.global_log.append(
+            action_label,
+            f"Session:{session_id} Seats:{seat_objects}",
+        )
+
+        self.server.store.save_all_seats(self.server.seat_matrix)
+
+        return build_success_response(
+            transaction_id=session_id,
+            ttl=RESERVATION_TTL,
+            reserved_seats=seat_objects,
+        )
 
     def handle_reserve_batch(self, request):
-        """
-        Reserve multiple seats atomically. Acquires all section locks in hierarchy order,
-        validates all seats, marks them as RESERVED, and acquires semaphore slots.
-        
-        If any seat is unavailable or semaphore acquisition fails for any section,
-        rolls back ALL changes (no partial reserves).
-        """
-        # Validate RESERVE_BATCH-specific payload
         is_valid, error_msg = validate_reserve_batch_payload(request)
         if not is_valid:
             return build_error_response(ErrorCode.INVALID_PAYLOAD, error_msg)
 
         try:
-            seats_to_reserve = request.get("seats", [])
-            
-            # Parse and group seats by section
-            sections_and_seats = {}  # section -> [(row, col), ...]
-            seat_objects = []  # original seat objects for response
-            
-            for seat_obj in seats_to_reserve:
-                section_str = seat_obj["section"]
-                row = int(seat_obj["row"])
-                col = int(seat_obj["col"])
-                
-                try:
-                    section = Section[section_str]
-                except KeyError:
-                    return error_invalid_section(section_str)
-                
-                # Validate bounds (double-check; validator should catch)
-                config = SECTION_CONFIG.get(section, {})
-                max_rows = config.get("rows", 0)
-                max_cols = config.get("cols", 0)
-                
-                if row >= max_rows or col >= max_cols:
-                    return error_seat_out_of_bounds(section_str, row, col, max_rows, max_cols)
-                
-                if section not in sections_and_seats:
-                    sections_and_seats[section] = []
-                
-                sections_and_seats[section].append((row, col))
-                seat_objects.append({"section": section_str, "row": row, "col": col})
-
-            ordered_sections = self._ordered_sections(sections_and_seats.keys())
-            reserved_seats = []  # [(section, row, col), ...]
-            acquired_semaphores = defaultdict(int)
-
-            with self.server.mutex_manager.table_and_sections(ordered_sections):
-                # Validate seat availability first (no state changes yet)
-                for section in ordered_sections:
-                    for row, col in sections_and_seats[section]:
-                        current_state = self.server.seat_matrix.seats[section][row][col]
-                        if current_state != SeatState.AVAILABLE:
-                            return failure_seat_not_available(
-                                section.name,
-                                row,
-                                col,
-                                current_state.value,
-                            )
-
-                # Mark seats as RESERVED
-                for section in ordered_sections:
-                    for row, col in sections_and_seats[section]:
-                        self.server.seat_matrix.seats[section][row][col] = SeatState.RESERVED
-                        reserved_seats.append((section, row, col))
-
-                # Acquire all required semaphore slots
-                for section in ordered_sections:
-                    requested_count = len(sections_and_seats[section])
-
-                    for _ in range(requested_count):
-                        acquired = self.server.semaphore_mgr.acquire(section, blocking=False)
-                        if not acquired:
-                            # Rollback seat states inside the same critical section
-                            for r_section, r_row, r_col in reserved_seats:
-                                self.server.seat_matrix.seats[r_section][r_row][r_col] = SeatState.AVAILABLE
-
-                            # Rollback acquired semaphore slots
-                            for rollback_section, rollback_count in acquired_semaphores.items():
-                                if rollback_count > 0:
-                                    self.server.semaphore_mgr.release_multiple(rollback_section, rollback_count)
-
-                            return failure_no_capacity(section.name)
-
-                        acquired_semaphores[section] += 1
-
-                # All validations passed, semaphores acquired: create transaction
-                # Flatten list of seats for transaction table
-                # For batch reserves spanning multiple sections, store as tuples (section, row, col)
-                # For single-section batches, store as tuples too for consistency
-                all_seats = []
-                for section in ordered_sections:
-                    for row, col in sections_and_seats[section]:
-                        all_seats.append((section, row, col))
-
-                # Create reservation transaction with all seats (as section-aware tuples)
-                primary_section = list(sections_and_seats.keys())[0] if len(sections_and_seats) == 1 else Section.VIP
-                try:
-                    tx_id = self.server.reservation_table.add_reservation(
-                        primary_section,
-                        all_seats,
-                        locked=True,
-                    )
-                except Exception:
-                    # Reservation table write failed: rollback seat states and semaphores.
-                    for section, row, col in reserved_seats:
-                        if self.server.seat_matrix.seats[section][row][col] == SeatState.RESERVED:
-                            self.server.seat_matrix.seats[section][row][col] = SeatState.AVAILABLE
-
-                    for section, count in acquired_semaphores.items():
-                        if count > 0:
-                            self.server.semaphore_mgr.release_multiple(section, count)
-
-                    raise
-
-            
-            self.server.global_log.append(
-                "RESERVE_BATCH",
-                f"TX:{tx_id} Seats:{seat_objects}",
-            )
-            
-            response = build_success_response(
-                transaction_id=tx_id,
-                ttl=RESERVATION_TTL,
-                reserved_seats=seat_objects
-            )
-            
-            return response
-
+            return self._do_reserve_batch(request, "RESERVE_BATCH")
         except Exception as e:
             self.server.global_log.append("ERROR", f"RESERVE_BATCH TX failed: {str(e)}")
             return error_internal(str(e))
 
+    def handle_reserve_selected(self, request):
+        is_valid, error_msg = validate_reserve_batch_payload(request)
+        if not is_valid:
+            return build_error_response(ErrorCode.INVALID_PAYLOAD, error_msg)
+
+        try:
+            return self._do_reserve_batch(request, "RESERVE_SELECTED")
+        except Exception as e:
+            self.server.global_log.append(
+                "ERROR", f"RESERVE_SELECTED TX failed: {str(e)}"
+            )
+            return error_internal(str(e))
+
+    def _group_seats_by_section(self, seats):
+        seats_by_section = {}
+        for section, row, col in seats:
+            if section not in seats_by_section:
+                seats_by_section[section] = []
+            seats_by_section[section].append((row, col))
+        return seats_by_section
 
     def handle_confirm(self, request):
         # Validate CONFIRM-specific payload
@@ -326,46 +365,85 @@ class TransactionalThread(threading.Thread):
         if not is_valid:
             return build_error_response(ErrorCode.INVALID_PAYLOAD, error_msg)
 
-        tx_id = request.get("transaction_id")
+        session_id = request.get("transaction_id")
+        user_id = request.get("user_id", "")
 
         try:
-            with self.server.mutex_manager.table():
-                reservation = self.server.reservation_table.reservations.get(tx_id)
-                
-                if not reservation:
-                    return failure_transaction_not_found(tx_id)
+            # EXPR-01: Acquire all section locks before computing seats_by_section to
+            # eliminate TOCTOU window between reading session.seats and locking sections.
+            with self.server.mutex_manager.table_and_sections(list(Section)):
+                current_session = self.server.session_manager.get_by_session_id(
+                    session_id
+                )
+                if current_session is None:
+                    return failure_transaction_not_found(session_id)
 
-                if reservation.state != ReservationStatus.ACTIVE:
-                    return failure_transaction_not_active(tx_id, reservation.state.value)
+                if current_session.user_id != user_id:
+                    return failure_transaction_not_found(session_id)
 
-                seats_by_section = self._group_reservation_seats_by_section(reservation)
+                if current_session.state != ReservationStatus.ACTIVE:
+                    return failure_transaction_not_active(
+                        session_id, current_session.state.value
+                    )
+
+                seats_by_section = self._group_seats_by_section(current_session.seats)
                 ordered_sections = self._ordered_sections(seats_by_section.keys())
 
-                with self.server.mutex_manager.sections(ordered_sections):
-                    # Verify all seats are RESERVED and update to SOLD
-                    for section in ordered_sections:
-                        for row, col in seats_by_section[section]:
-                            seat_state = self.server.seat_matrix.seats[section][row][col]
-                            if seat_state != SeatState.RESERVED:
-                                return build_failure_response(
-                                    ErrorCode.SEAT_NOT_AVAILABLE,
-                                    f"Seat {section.name}({row},{col}) state is {seat_state.value}, expected RESERVED"
-                                )
+                for section in ordered_sections:
+                    for row, col in seats_by_section[section]:
+                        seat_state = self.server.seat_matrix.seats[section][row][col]
+                        if seat_state != SeatState.RESERVED:
+                            return build_failure_response(
+                                ErrorCode.SEAT_NOT_AVAILABLE,
+                                f"Seat {section.name}({row},{col}) state is {seat_state.value}, expected RESERVED",
+                            )
 
-                            self.server.seat_matrix.seats[section][row][col] = SeatState.SOLD
+                        self.server.seat_matrix.seats[section][row][
+                            col
+                        ] = SeatState.SOLD
 
-                reservation.state = ReservationStatus.CONFIRMED
-                cleared_reservation = self.server.reservation_table.delete_reservation(tx_id, locked=True)
-                if cleared_reservation is None:
-                    return error_internal(f"Reservation {tx_id} disappeared during confirm")
+                current_session.state = ReservationStatus.CONFIRMED
+                confirmed_user_id = current_session.user_id
+                self.server.session_manager.remove(confirmed_user_id)
 
-            self.server.global_log.append("CONFIRM", f"TX:{tx_id} confirmed")
-            return build_success_response(transaction_id=tx_id)
+            self.server.global_log.append(
+                "CONFIRM",
+                f"Session:{session_id} User:{confirmed_user_id} confirmed",
+            )
+
+            self.server.store.save_all_seats(self.server.seat_matrix)
+            self.server.store.delete_session(confirmed_user_id)
+
+            self.server.notification_manager.append(
+                confirmed_user_id,
+                NotificationType.CONFIRMED,
+                "[NOTIFICACIÓN]\nCompra confirmada correctamente.",
+            )
+            self.server.global_log.append(
+                "NOTIFICATION",
+                f"Session:{session_id} User:{confirmed_user_id} CONFIRMED notification sent",
+            )
+
+            # Start background ticket generation after successful CONFIRM
+            ticket_id = self.server.notification_manager.generate_ticket_id()
+            seat_list = [(r, c) for section, r, c in current_session.seats]
+            section_name = "+".join(s.name for s in ordered_sections) if ordered_sections else "UNKNOWN"
+            ticket_thread = threading.Thread(
+                target=self.server.ticket_generator.generate_ticket,
+                args=(ticket_id, section_name, seat_list, session_id, time.time()),
+                daemon=True,
+            )
+            ticket_thread.start()
+            self.server.global_log.append(
+                "TICKET",
+                f"Ticket {ticket_id} generation started for Session:{session_id}",
+            )
+
+            return build_success_response(transaction_id=session_id)
 
         except Exception as e:
             self.server.global_log.append("ERROR", f"CONFIRM TX failed: {str(e)}")
             return error_internal(str(e))
-
 
     def handle_cancel(self, request):
         # Validate CANCEL-specific payload
@@ -373,63 +451,83 @@ class TransactionalThread(threading.Thread):
         if not is_valid:
             return build_error_response(ErrorCode.INVALID_PAYLOAD, error_msg)
 
-        tx_id = request.get("transaction_id")
+        session_id = request.get("transaction_id")
+        user_id = request.get("user_id", "")
 
         try:
-            with self.server.mutex_manager.table():
-                reservation = self.server.reservation_table.reservations.get(tx_id)
-                
-                if not reservation:
-                    return failure_transaction_not_found(tx_id)
+            with self.server.mutex_manager.table_and_sections(list(Section)):
+                current_session = self.server.session_manager.get_by_session_id(
+                    session_id
+                )
+                if current_session is None:
+                    return failure_transaction_not_found(session_id)
 
-                if reservation.state != ReservationStatus.ACTIVE:
-                    return failure_transaction_not_active(tx_id, reservation.state.value)
+                if current_session.user_id != user_id:
+                    return failure_transaction_not_found(session_id)
 
-                seats_by_section = self._group_reservation_seats_by_section(reservation)
+                if current_session.state == ReservationStatus.CANCELLED:
+                    self.server.global_log.append(
+                        "CANCEL", f"Session:{session_id} already cancelled (idempotent)"
+                    )
+                    return build_success_response(transaction_id=session_id)
+                if current_session.state != ReservationStatus.ACTIVE:
+                    return failure_transaction_not_active(
+                        session_id, current_session.state.value
+                    )
+
+                seats_by_section = self._group_seats_by_section(current_session.seats)
                 ordered_sections = self._ordered_sections(seats_by_section.keys())
                 released_counts = {section: 0 for section in ordered_sections}
 
-                with self.server.mutex_manager.sections(ordered_sections):
-                    for section in ordered_sections:
-                        for row, col in seats_by_section[section]:
-                            seat_state = self.server.seat_matrix.seats[section][row][col]
-                            if seat_state != SeatState.RESERVED:
-                                return build_failure_response(
-                                    ErrorCode.SEAT_NOT_AVAILABLE,
-                                    f"Seat {section.name}({row},{col}) state is {seat_state.value}, expected RESERVED"
-                                )
-                            self.server.seat_matrix.seats[section][row][col] = SeatState.AVAILABLE
-                            released_counts[section] += 1
+                for section in ordered_sections:
+                    for row, col in seats_by_section[section]:
+                        seat_state = self.server.seat_matrix.seats[section][row][col]
+                        if seat_state != SeatState.RESERVED:
+                            return build_failure_response(
+                                ErrorCode.SEAT_NOT_AVAILABLE,
+                                f"Seat {section.name}({row},{col}) state is {seat_state.value}, expected RESERVED",
+                            )
+                        self.server.seat_matrix.seats[section][row][
+                            col
+                        ] = SeatState.AVAILABLE
+                        released_counts[section] += 1
 
-                reservation.state = ReservationStatus.CANCELLED
+                current_session.state = ReservationStatus.CANCELLED
+                cancelled_user_id = current_session.user_id
+                self.server.session_manager.remove(cancelled_user_id)
+
                 for section, count in released_counts.items():
                     if count > 0:
                         self.server.semaphore_mgr.release_multiple(section, count)
 
-                cleared_reservation = self.server.reservation_table.delete_reservation(tx_id, locked=True)
-                if cleared_reservation is None:
-                    return error_internal(f"Reservation {tx_id} disappeared during cancel")
+                for section in ordered_sections:
+                    if released_counts[section] > 0:
+                        self._notify_availability_if_needed(section)
+
             self.server.global_log.append(
                 "CANCEL",
-                f"TX:{tx_id} cancelled sections_released:{len(released_counts)}",
+                f"Session:{session_id} User:{cancelled_user_id} cancelled sections_released:{len(released_counts)}",
             )
-            return build_success_response(transaction_id=tx_id)
+
+            self.server.store.save_all_seats(self.server.seat_matrix)
+            self.server.store.delete_session(cancelled_user_id)
+
+            return build_success_response(transaction_id=session_id)
 
         except Exception as e:
             self.server.global_log.append("ERROR", f"CANCEL TX failed: {str(e)}")
             return error_internal(str(e))
 
-
     def handle_query(self, request):
         """
         Query seat availability by section.
-        
+
         Atomicity: Acquires ALL section locks in order (prevents deadlock).
         Ensures snapshot is consistent despite concurrent modifications.
         """
         try:
             sections_data = {}
-            
+
             # Acquire ALL section locks once for a globally consistent snapshot.
             with self.server.mutex_manager.sections(list(Section)):
                 for section in Section:
@@ -437,20 +535,23 @@ class TransactionalThread(threading.Thread):
                     sections_data[section.name] = counts
 
             return build_success_response(sections=sections_data)
-        
+
         except Exception as e:
             self.server.global_log.append("ERROR", f"QUERY failed: {str(e)}")
             return error_internal(str(e))
 
     def handle_query_seat_map(self, request):
         """
-        Query full seat-state matrix by section for visualization clients.
+        Enriched seat-map response with OWN_RESERVED tags for requesting user's seats.
+        Safe: OWN_RESERVED is view-only, never written to SeatMatrix.
+        session.seats read outside lock — stale reads just mean one refresh cycle
+        of amber instead of teal (harmless).
 
         Response shape:
         {
             "status": "SUCCESS",
             "seat_map": {
-                "VIP": [["AVAILABLE", ...], ...],
+                "VIP": [["AVAILABLE", "OWN_RESERVED", "RESERVED", ...], ...],
                 "PREFERENTIAL": [[...]],
                 "GENERAL": [[...]]
             }
@@ -458,31 +559,106 @@ class TransactionalThread(threading.Thread):
         """
         try:
             seat_map = {}
+            requesting_user_id = request.get("user_id", "")
+            session = None
+            if requesting_user_id:
+                session = self.server.session_manager.get_by_user_id(requesting_user_id)
+
+            user_session_data = None
+            if session is not None and session.state == ReservationStatus.ACTIVE:
+                seat_list = [
+                    {"section": s.name, "row": r, "col": c}
+                    for s, r, c in session.seats
+                ]
+                user_session_data = {
+                    "session_id": session.session_id,
+                    "seats": seat_list,
+                    "ttl_secs": session.ttl_secs,
+                    "last_activity": session.last_activity,
+                }
 
             with self.server.mutex_manager.sections(list(Section)):
                 for section in Section:
                     rows = self.server.seat_matrix.seats[section]
                     serialized_rows = []
-                    for row in rows:
-                        serialized_rows.append([seat.value for seat in row])
+                    for row_idx, row in enumerate(rows):
+                        serialized_row = []
+                        for col_idx, seat in enumerate(row):
+                            if seat == SeatState.RESERVED and session is not None:
+                                if (section, row_idx, col_idx) in session.seats:
+                                    serialized_row.append("OWN_RESERVED")
+                                else:
+                                    serialized_row.append(seat.value)
+                            else:
+                                serialized_row.append(seat.value)
+                        serialized_rows.append(serialized_row)
                     seat_map[section.name] = serialized_rows
 
-            return build_success_response(seat_map=seat_map)
+            return build_success_response(seat_map=seat_map, user_session=user_session_data)
 
         except Exception as e:
             self.server.global_log.append("ERROR", f"QUERY_SEAT_MAP failed: {str(e)}")
             return error_internal(str(e))
-    
+
+    def handle_subscribe(self, request):
+        """Handle SUBSCRIBE_NOTIFICATIONS request.
+
+        Registers the client socket for push notification delivery and
+        enters a keep-alive loop to detect client disconnect.
+
+        This method sends its own response and takes ownership of the
+        client socket. The _socket_transferred flag prevents the
+        run() finally block from double-closing the socket.
+        """
+        # Validate SUBSCRIBE_NOTIFICATIONS-specific payload
+        is_valid, error_msg = validate_subscribe_payload(request)
+        if not is_valid:
+            response = build_error_response(ErrorCode.INVALID_PAYLOAD, error_msg)
+            try:
+                self.client_socket.send(json.dumps(response).encode())
+            except Exception:
+                pass
+            return
+
+        user_id = request.get("user_id")
+        try:
+            self.server.notification_manager.subscribe(user_id, self.client_socket)
+            self._socket_transferred = True
+
+            # Send success response
+            response = build_success_response(
+                message="Subscribed to notifications"
+            )
+            self.client_socket.send(json.dumps(response).encode())
+        except Exception as e:
+            self.server.global_log.append(
+                "ERROR", f"SUBSCRIBE failed for user {user_id}: {str(e)}"
+            )
+            return
+
+        # Keep-alive loop: detect client disconnect via long timeout recv
+        self.client_socket.settimeout(600)
+        try:
+            while self.server.running:
+                try:
+                    data = self.client_socket.recv(4096)
+                    if not data:
+                        break
+                except socket.timeout:
+                    continue
+        finally:
+            self.server.notification_manager.unsubscribe(user_id)
+
     def _count_section_seats(self, section):
         """
         Count seats in section (MUST be called while section mutex is held).
-        
+
         Returns dict with available/reserved/sold (no total, per protocol-contract-v1).
         """
         available = 0
         reserved = 0
         sold = 0
-        
+
         for row in self.server.seat_matrix.seats[section]:
             for seat in row:
                 if seat == SeatState.AVAILABLE:
@@ -491,10 +667,9 @@ class TransactionalThread(threading.Thread):
                     reserved += 1
                 elif seat == SeatState.SOLD:
                     sold += 1
-        
+
         return {
             "available": available,
             "reserved": reserved,
             "sold": sold,
         }
-

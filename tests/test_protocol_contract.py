@@ -321,10 +321,10 @@ class TestCoordinatedRequestValidation:
 
     def test_valid_reserve_request(self):
         """Valid RESERVE request end-to-end."""
-        data = '{"action": "RESERVE", "section": "VIP", "row": 2, "col": 5}'
+        data = '{"action": "RESERVE", "user_id": "test_user", "section": "VIP", "row": 2, "col": 5}'
         is_valid, msg, request = validate_request(data)
         assert is_valid is True
-        assert request == {"action": "RESERVE", "section": "VIP", "row": 2, "col": 5}
+        assert request == {"action": "RESERVE", "user_id": "test_user", "section": "VIP", "row": 2, "col": 5}
 
     def test_invalid_json(self):
         """Invalid JSON should fail at parse step."""
@@ -342,7 +342,7 @@ class TestCoordinatedRequestValidation:
 
     def test_invalid_reserve_missing_section(self):
         """Invalid RESERVE (missing section) should fail at payload step."""
-        data = '{"action": "RESERVE", "row": 2, "col": 5}'
+        data = '{"action": "RESERVE", "user_id": "test_user", "row": 2, "col": 5}'
         is_valid, msg, request = validate_request(data)
         assert is_valid is False
         assert request is None

@@ -1,93 +1,260 @@
 # ConcertSync
 
-ConcertSync is a small Python project implementing a TCP-based seat reservation server for a concert venue. It uses JSON messages over sockets, threading for concurrent clients, and shared resource management to keep seat states consistent.
+TCP-based concurrent seat reservation system for a concert venue. Python server
+manages seat state across three sections (VIP, PREFERENTIAL, GENERAL) using
+threading, lock hierarchies, and semaphores. Two frontends available: a **PySide6
+desktop GUI** (recommended) and a **Textual terminal TUI** (legacy).
+
+Features **async push notifications** (TTL warnings, confirmations, expiry) and
+**automatic ticket generation** for every confirmed purchase.
+
+## Quick Start
+
+```bash
+# Option A: Server + GUI in one command
+python desktop_launcher.py
+
+# Option B: Server + TUI in one command (Nix)
+nix develop --command python desktop_launcher.py --mode tui
+
+# Option C: Separate processes
+python main.py                          # Terminal 1: start server
+python -m frontend_pyside6              # Terminal 2: start GUI
+```
+
+## Requirements
+
+| Setup | Command |
+|---|---|
+| Nix (recommended) | `nix develop` — enters shell with all deps |
+| uv | `uv sync --group pyside6` |
+| pip | `pip install pyside6` |
+
+Port **9999** must be available.
+
+## Running
+
+### PySide6 Desktop GUI
+
+```bash
+# Server + GUI (one process)
+python desktop_launcher.py
+
+# Server only
+python desktop_launcher.py --mode server
+
+# GUI only (connect to existing server)
+python desktop_launcher.py --mode client
+python -m frontend_pyside6 --mode client
+
+# Server monitoring dashboard
+python desktop_launcher.py --mode dashboard
+python -m frontend_pyside6 --mode dashboard
+```
+
+### Using the GUI
+
+1. Click **Connect** in the left panel (enter a user ID or leave blank for auto-generated).
+2. Click an **AVAILABLE** seat (green) to reserve it immediately — it turns blue.
+3. The **Transaction ID** auto-populates in the input field.
+4. Click **Confirm** to finalize the purchase (seat turns red — SOLD). A **ticket** file is generated in `tickets/`.
+5. Click **Cancel** to release the seat.
+6. Switch sections with the **VIP / Preferential / General** buttons.
+7. Click **Activity Center** to see event logs, active sessions, and stats.
+8. Reservations expire after **300 seconds** (5 min) — TTL countdown shown in the panel. You'll receive a **TTL warning notification** 30s before expiry.
+
+### Textual TUI (Legacy)
+
+```bash
+nix develop --command python -m frontend_tui
+```
+
+### Nix
+
+```bash
+nix develop
+python main.py                    # start server
+python -m frontend_pyside6        # start GUI
+```
+
+## Seats
+
+| Section | Size | Capacity |
+|---|---|---|
+| VIP | 5 × 10 | 50 |
+| PREFERENTIAL | 10 × 15 | 150 |
+| GENERAL | 20 × 20 | 400 |
+
+**Colors (GUI):** Green = Available, Blue = Yours, Orange = Reserved (other user), Red = Sold, Purple = Pending.
+
+## Demo Multi-usuario (Defensa)
+
+Para que compañeros se conecten a **tu servidor** desde sus laptops en el mismo laboratorio:
+
+### 1. Obtener tu IP local
+
+```bash
+ip addr show | grep 'inet ' | grep -v 127.0.0.1
+# Ejemplo: 192.168.1.42
+```
+
+### 2. Servidor en tu máquina
+
+```bash
+nix develop --command python main.py
+# Escucha en 0.0.0.0:9999 — accesible desde toda la red local
+```
+
+### 3. Compañeros se conectan desde sus laptops
+
+**Opción A — Script Python (sin instalar nada):** Solo necesitan Python.
+
+```bash
+python3 -c "
+import socket, json
+
+def cmd(ip, a, s='GENERAL'):
+    c = socket.socket(); c.settimeout(5)
+    c.connect((ip, 9999))
+    c.sendall(json.dumps({'action': a, 'section': s}).encode())
+    r = json.loads(c.recv(4096)); c.close(); return r
+
+ip = '192.168.1.42'  # CAMBIAR por tu IP
+r = cmd(ip, 'QUERY_SEAT_MAP', 'VIP')
+disp = sum(1 for row in r['seat_map'] for s in row if s == 'AVAILABLE')
+print(f'VIP: {disp} libres')
+r = cmd(ip, 'RESERVE', 'VIP')
+if r['status'] == 'SUCCESS':
+    tx = r['transaction_id']
+    r2 = cmd(ip, 'CONFIRM', 'VIP')
+    print(f'Comprada TX:{tx}')
+else:
+    print(f'Error: {r}')
+"
+```
+
+**Opción B — Ejecutable (sin Python):** Reparte un `.exe` a tus compañeros.
+
+```bash
+# En tu máquina Windows, construís el ejecutable:
+pip install pyinstaller
+pyinstaller --onefile --console --name comprar scripts/simple_client.py
+
+# Copiás dist/comprar.exe a un USB y lo pasás
+```
+
+Tus compañeros ejecutan `comprar.exe 192.168.1.42` (tu IP) desde su carpeta.
+
+> ⚠️ **Importante para Windows:**
+> 1. **Firewall** — Al iniciar el servidor, Windows preguntará si permitís conexiones entrantes en el puerto 9999. Aceptá.
+> 2. **WSL no funciona para esto** — Si ejecutás el servidor desde WSL, tu IP es la de WSL (no visible para los demás). Mejor corré `python main.py` directamente desde **PowerShell o cmd** (con Python instalado en Windows), así escucha en la IP real de tu máquina.
+> 3. **Antivirus** — Puede marcar el `.exe` como falso positivo por ser compilado con PyInstaller. Tus compañeros pueden ignorar la advertencia.
+
+### 4. Ver conexiones activas en el servidor
+
+Las conexiones entrantes aparecen en los logs del servidor y en la GUI local. Cada comprador ocupa un asiento real — el sistema maneja concurrencia con locks y semáforos sin race conditions.
+
+> **Tips para la defensa:** Abrí la GUI (`--mode both` o `desktop_launcher.py`) en un proyector para mostrar el mapa actualizándose en vivo mientras compañeros reservan desde sus máquinas.
+
+## Load Generator (Demo para profesora)
+
+Genera requests concurrentes para llenar asientos en vivo mientras se ve en la GUI.
+
+```bash
+# Terminal 1: servidor
+nix develop --command python main.py
+
+# Terminal 2: GUI
+nix develop --command python -m frontend_pyside6 --mode client
+
+# Terminal 3: generador de carga (lento — 1 request cada 0.5s)
+nix develop --command python tests/load_generator.py --requests 50 --delay 0.5
+
+# Más lento aún (1 cada 2s)
+nix develop --command python tests/load_generator.py --requests 20 --delay 2
+
+# Rápido (todo de golpe, sin delay)
+nix develop --command python tests/load_generator.py --requests 100 --conflicts
+```
+
+| Flag | Default | Descripción |
+|---|---|---|
+| `--requests N` | 100 | Cantidad de requests concurrentes |
+| `--delay N` | 0 | Segundos de espera entre cada request |
+| `--conflicts` | off | Múltiples hilos atacan los mismos asientos |
+
+## Notifications
+
+Clients can subscribe to real-time push notifications via a long-lived TCP connection:
+
+```bash
+python3 -c "
+import socket, json
+s = socket.socket()
+s.connect(('localhost', 9999))
+req = json.dumps({'action': 'SUBSCRIBE_NOTIFICATIONS', 'user_id': 'my_user'})
+s.sendall(req.encode())
+print(s.recv(4096).decode())  # SUCCESS response
+# Socket stays open — server pushes JSON notification lines
+"
+```
+
+| Event | Trigger | Message |
+|-------|---------|---------|
+| `TTL_WARNING` | ~30s before reservation expires | "Su reserva expirará en 30 segundos." |
+| `CONFIRMED` | After successful CONFIRM | "Compra confirmada correctamente." |
+| `EXPIRED` | Reservation expired, seats released | "Su reserva ha expirado y los asientos fueron liberados." |
+| `AVAILABILITY` | Section goes from full to available | "Hay nuevos asientos disponibles en la zona <SECTION>." |
+
+Protocol reference: `docs/protocol-contract-v1.md` §SUBSCRIBE_NOTIFICATIONS.
+
+## Tickets
+
+Every CONFIRM generates a ticket file in `tickets/`:
+
+```
+tickets/
+└── ticket_tkt-000001.txt   # Unicode box-drawing format
+```
+
+The ticket file contains seat, zone, date, and transaction information.  
+Ticket generation runs in a background thread — it never delays the CONFIRM response.
+
+## Reset — Limpiar estado guardado
+
+El servidor persiste asientos y sesiones en `data/concert_sync.db`.
+Para empezar desde cero:
+
+```bash
+# 1. Parar el servidor (Ctrl+C)
+# 2. Borrar la base de datos
+rm data/concert_sync.db
+# 3. Iniciar el servidor de nuevo
+nix develop --command python main.py
+```
+
+## Tests
+
+```bash
+python -m pytest tests/ -x -v      # 217+ tests
+nix develop --command pytest tests/ -x -v  # via Nix
+```
 
 ## Project Structure
 
-- `main.py`: starts the `ConcertServer` on the configured port.
-- `src/server/concert_server.py`: server lifecycle, listener thread, and monitor thread.
-- `src/server/listener_thread.py`: accepts incoming connections.
-- `src/server/transactional_thread.py`: handles client requests for `RESERVE`, `CONFIRM`, `CANCEL`, and `QUERY`.
-- `src/server/monitor_thread.py`: expires timed-out reservations and restores seats.
-- `src/client/concert_client.py`: client helper for sending JSON requests to the server.
-- `src/shared_resources/seat_matrix.py`: seat matrix state and section locking.
-- `src/shared_resources/semaphore_manager.py`: capacity semaphores per section.
-- `src/shared_resources/reservation_table.py`: in-memory transaction table with TTL.
-- `src/shared_resources/global_log.py`: thread-safe event logging.
-- `src/utils/enums.py`: enums for seat states, sections, and reservation statuses.
-- `src/utils/config.py`: section dimensions, reservation TTL, and server port.
-- `frontend_tui/`: Textual-based terminal frontend (English UI) connected to the same client-server protocol.
-
-## How It Works
-
-1. The server listens for TCP connections on port `9999`.
-2. Each client connection is managed by a separate thread.
-3. `RESERVE` changes a seat from `AVAILABLE` to `RESERVED`, records a transaction, and reserves section capacity.
-4. `CONFIRM` moves reserved seats to `SOLD` and marks the transaction as confirmed.
-5. `CANCEL` releases reserved seats and frees the section capacity.
-6. `QUERY` returns counts of `available`, `reserved`, and `sold` seats per section.
-7. A background monitor thread expires active reservations after `RESERVATION_TTL` seconds and restores seats.
-
-## Configuration
-
-- `src/utils/config.py` defines:
-  - `SECTION_CONFIG`: rows and columns for each section
-  - `RESERVATION_TTL`: 300 seconds
-  - `SERVER_PORT`: 9999
-
-## Running the Server
-
-```bash
-python main.py
 ```
-
-## Running the Textual TUI
-
-```bash
-nix develop -c python -m frontend_tui
+main.py                          # Server entry point
+desktop_launcher.py              # Server + frontend launcher
+src/
+  server/                        # TCP server, threading, request dispatch
+  client/                        # TCP client with typed exceptions
+  shared_resources/              # Seat matrix, semaphores, SQLite persistence
+  synchronization/               # Lock hierarchy (deadlock prevention)
+  utils/                         # Config, enums, protocol validation
+frontend_pyside6/                # PySide6 desktop GUI (recommended)
+frontend_tui/                    # Textual TUI (legacy)
+tests/                           # 217 tests — protocol, notifications, tickets, race conditions
 ```
-
-If you are not using Nix:
-
-```bash
-python -m frontend_tui
+docs/
+  protocol-contract-v1.md        # JSON-over-TCP protocol specification
 ```
-
-## Using the Client
-
-The client sends JSON requests to the server. Supported actions:
-
-- `RESERVE`: reserve a seat by section, row, and column
-- `CONFIRM`: confirm a reservation by transaction ID
-- `CANCEL`: cancel a reservation by transaction ID
-- `QUERY`: get section seat counts
-
-Example request format:
-
-```json
-{
-  "action": "RESERVE",
-  "section": "VIP",
-  "row": 0,
-  "col": 0
-}
-```
-
-## Justification and Quality
-
-### Justificación
-- Decisiones técnicas clave:
-  - uso de sockets TCP para comunicación cliente-servidor
-  - uso de `threading` para cada conexión y un monitor de expiración independiente
-  - coordinación de recursos con `mutex` y semáforos por sección
-  - controla el estado de cada asiento en `AVAILABLE`, `RESERVED` y `SOLD`
-  - protege matriz, tabla de reservas y semáforos para evitar inconsistencias
-  - aplica expiración TTL y manejo correcto de confirmaciones/cancelaciones
-
-### Calidad
-- Código estructurado y comentado:
-  - módulo de sincronización separado (`src/synchronization`)
-  - manejo de estados y transacciones en `src/server/transactional_thread.py`
-  - recursos compartidos encapsulados en `src/shared_resources`
-
-

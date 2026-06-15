@@ -11,6 +11,7 @@ class GlobalLog:
     def append(self, event_type, message):
         with self.mutex_log:
             timestamp = datetime.datetime.now().isoformat()
-            log_entry = f"[{timestamp}] [{event_type}] {message}\n"
+            tid = threading.get_ident()
+            log_entry = f"[{timestamp}] [{event_type}] [TID:{tid}] {message}\n"
             with self.filepath.open("a", encoding="utf-8") as f:
                 f.write(log_entry)

@@ -3,6 +3,7 @@ import json
 
 from src.utils.protocol_validator import (
     validate_reserve_payload,
+    validate_reserve_batch_payload,
     validate_confirm_payload,
     validate_cancel_payload,
     validate_query_payload,
@@ -68,7 +69,8 @@ ERROR_CODE_TO_EXCEPTION = {
 
 
 class ConcertClient:
-    def __init__(self, host='localhost', port=9999):
+    def __init__(self, user_id: str = "", host='localhost', port=9999):
+        self.user_id = user_id
         self.host = host
         self.port = port
 
@@ -85,6 +87,7 @@ class ConcertClient:
         Raises:
             ConcertClientError: If network or protocol error occurs
         """
+        request["user_id"] = self.user_id
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect((self.host, self.port))
@@ -177,6 +180,32 @@ class ConcertClient:
         response = self.send_request(request)
         return response
 
+    def reserve_selected(self, seats):
+        """
+        Reserve multiple seats atomically (used by TUI pending selection).
+
+        Args:
+            seats: List of dicts with keys "section", "row", "col"
+
+        Returns:
+            Response dict with transaction_id, ttl, and reserved_seats
+
+        Raises:
+            InvalidInputError: If inputs are invalid
+            ServerError: If server error occurs
+        """
+        request = {
+            "action": "RESERVE_SELECTED",
+            "seats": seats,
+        }
+
+        is_valid, error_msg = validate_reserve_batch_payload(request)
+        if not is_valid:
+            raise InvalidInputError(f"Invalid reserve_selected input: {error_msg}")
+
+        response = self.send_request(request)
+        return response
+
     def confirm(self, transaction_id):
         """
         Confirm a reservation (convert to SOLD state).
@@ -251,6 +280,75 @@ class ConcertClient:
         
         response = self.send_request(request)
         return response
+
+    def subscribe_notifications(self, user_id: str) -> socket.socket:
+        """
+        Open a long-lived subscription connection for push notifications.
+
+        Unlike other methods that use short-lived connections, this opens a
+        TCP socket, sends a SUBSCRIBE_NOTIFICATIONS request, and returns the
+        socket for reading notification messages asynchronously.
+
+        Args:
+            user_id: User identifier for notification delivery
+
+        Returns:
+            socket.socket connected to the server for reading notifications
+
+        Raises:
+            ConcertClientError: If subscription fails
+        """
+        import json as _json
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            s.connect((self.host, self.port))
+            request = {"action": "SUBSCRIBE_NOTIFICATIONS", "user_id": user_id}
+            s.sendall(_json.dumps(request).encode())
+            response_data = s.recv(4096)
+            response = _json.loads(response_data.decode())
+            if response.get("status") != "SUCCESS":
+                raise ConcertClientError(f"Subscription failed: {response.get('message', 'unknown')}")
+            return s
+        except ConcertClientError:
+            s.close()
+            raise
+        except Exception as e:
+            s.close()
+            raise ConcertClientError(f"Subscription connection failed: {e}")
+
+    def read_notification(self, sub_socket: socket.socket, timeout: float = None) -> dict | None:
+        """
+        Read a single notification from a subscription socket.
+
+        Args:
+            sub_socket: Socket returned by subscribe_notifications()
+            timeout: Socket timeout in seconds (None = blocking)
+
+        Returns:
+            Dict with notification data, or None if timeout/closed
+        """
+        import json as _json
+        try:
+            if timeout is not None:
+                sub_socket.settimeout(timeout)
+            data = sub_socket.recv(4096)
+            if not data:
+                return None
+            raw = data.decode().strip()
+            if not raw:
+                return None
+            lines = raw.split("\n")
+            for line in lines:
+                line = line.strip()
+                if line:
+                    parsed = _json.loads(line)
+                    if parsed.get("type") == "NOTIFICATION":
+                        return parsed
+            return None
+        except socket.timeout:
+            return None
+        except (json.JSONDecodeError, socket.error) as e:
+            raise ConcertClientError(f"Notification read failed: {e}")
 
     def query_seat_map(self):
         """

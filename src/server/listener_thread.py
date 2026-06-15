@@ -16,6 +16,7 @@ class ListenerThread(threading.Thread):
                 client_socket, addr = self.server.server_socket.accept()
                 tx_thread = TransactionalThread(self.server, client_socket, addr)
                 tx_thread.name = f"TxThread-{addr[0]}:{addr[1]}-{time.time_ns()}"
+                self.server.register_thread(tx_thread)
                 tx_thread.start()
                 self.server.global_log.append(
                     "THREAD",

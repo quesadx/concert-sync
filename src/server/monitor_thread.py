@@ -1,7 +1,7 @@
 import threading
 import time
 
-from src.utils.enums import ReservationStatus, SeatState, Section
+from src.utils.enums import NotificationType, ReservationStatus, SeatState, Section
 
 
 class MonitorThread(threading.Thread):
@@ -13,57 +13,128 @@ class MonitorThread(threading.Thread):
     def run(self):
         while self.server.running:
             time.sleep(1)
-            expired = self.server.reservation_table.get_expired_reservations()
+            expired = self.server.session_manager.get_expired()
 
-            for tx_id in expired:
-                self.expire_reservation(tx_id)
+            for session in expired:
+                self.expire_session(session)
 
-    def _group_reservation_seats_by_section(self, reservation):
+            self._check_ttl_warnings()
+
+    def _group_seats_by_section(self, seats):
         seats_by_section = {}
-
-        for seat_info in reservation.seats:
-            if len(seat_info) == 3:
-                section, row, col = seat_info
-            else:
-                section = reservation.section
-                row, col = seat_info
-
+        for section, row, col in seats:
             if section not in seats_by_section:
                 seats_by_section[section] = []
             seats_by_section[section].append((row, col))
-
         return seats_by_section
 
     def _ordered_sections(self, sections):
         section_set = set(sections)
         return [section for section in Section if section in section_set]
 
-    def expire_reservation(self, tx_id):
-        released_counts = {}
+    def _check_ttl_warnings(self):
+        TTL_WARNING_THRESHOLD = 30
+        now = time.time()
+        for user_id in self.server.notification_manager.get_all_subscribers():
+            session = self.server.session_manager.get_by_user_id(user_id)
+            if session is None or session.state.value != "ACTIVE":
+                continue
+            remaining = session.ttl_secs - (now - session.last_activity)
+            if 0 < remaining <= TTL_WARNING_THRESHOLD:
+                self.server.notification_manager.append(
+                    user_id,
+                    NotificationType.TTL_WARNING,
+                    "[NOTIFICACIÓN]\nSu reserva expirará en 30 segundos.",
+                )
+                self.server.global_log.append(
+                    "NOTIFICATION",
+                    f"User:{user_id} TTL warning sent ({int(remaining)}s remaining)",
+                )
 
-        with self.server.mutex_manager.table():
-            reservation = self.server.reservation_table.reservations.get(tx_id)
-            if not reservation or reservation.state != ReservationStatus.ACTIVE:
+    def _notify_availability_if_needed(self, section):
+        section_name = section.name
+        available_count = 0
+        for row in self.server.seat_matrix.seats[section]:
+            for seat in row:
+                if seat == SeatState.AVAILABLE:
+                    available_count += 1
+        was_full = self.server.notification_manager.is_section_full(section_name)
+        self.server.notification_manager.set_section_full(section_name, available_count == 0)
+        if was_full and available_count > 0:
+            message = f"[NOTIFICACIÓN]\nHay nuevos asientos disponibles en la zona {section_name}."
+            self.server.notification_manager.append_to_all(
+                NotificationType.AVAILABILITY,
+                message,
+            )
+            self.server.global_log.append(
+                "NOTIFICATION",
+                f"Section:{section_name} availability notification (was full, now {available_count} available)",
+            )
+
+    def expire_session(self, session):
+        seats_by_section = self._group_seats_by_section(session.seats)
+        ordered_sections = self._ordered_sections(seats_by_section.keys())
+
+        with self.server.mutex_manager.table_and_sections(ordered_sections):
+            current = self.server.session_manager.get_by_session_id(session.session_id)
+            if current is None or current.state != ReservationStatus.ACTIVE:
                 return
 
-                reservation.state = ReservationStatus.EXPIRED
-                for section in ordered_sections:
-                    for row, col in seats_by_section[section]:
-                        if self.server.seat_matrix.seats[section][row][col] == SeatState.RESERVED:
-                            self.server.seat_matrix.seats[section][row][col] = SeatState.AVAILABLE
-                            released_counts[section] += 1
-
-            cleared_reservation = self.server.reservation_table.delete_reservation(tx_id, locked=True)
-            if cleared_reservation is None:
+            if not current.is_expired:
                 return
 
-        for section, count in released_counts.items():
-            if count > 0:
-                self.server.semaphore_mgr.release_multiple(section, count)
+            released_counts = {section: 0 for section in ordered_sections}
+            for section in ordered_sections:
+                for row, col in seats_by_section[section]:
+                    if (
+                        self.server.seat_matrix.seats[section][row][col]
+                        == SeatState.RESERVED
+                    ):
+                        self.server.seat_matrix.seats[section][row][
+                            col
+                        ] = SeatState.AVAILABLE
+                        released_counts[section] += 1
 
-        released_total = sum(released_counts.values())
+            self.server.session_manager.remove(session.user_id)
+            self.server.store.delete_session(session.user_id)
 
+            for section, count in released_counts.items():
+                if count > 0:
+                    self.server.semaphore_mgr.release_multiple(section, count)
+
+            for section in ordered_sections:
+                if released_counts[section] > 0:
+                    self._notify_availability_if_needed(section)
+
+        self.server.store.save_all_seats(self.server.seat_matrix)
+
+        self.server.notification_manager.append(
+            session.user_id,
+            NotificationType.EXPIRED,
+            "[NOTIFICACIÓN]\nSu reserva ha expirado y los asientos fueron liberados.",
+        )
+        self.server.global_log.append(
+            "NOTIFICATION",
+            f"User:{session.user_id} EXPIRED notification sent",
+        )
+
+        total = sum(released_counts.values())
         self.server.global_log.append(
             "EXPIRE",
-            f"TX:{tx_id} expired seats_released:{released_total} sections_released:{len(released_counts)}",
+            f"Session:{session.session_id} User:{session.user_id} seats_released:{total}",
+        )
+
+    def expire_reservation(self, tx_id):
+        """Legacy safety wrapper — no longer called from run().
+
+        Attempts to find session by transaction_id and expire it.
+        If no matching session found, logs and returns.
+        """
+        for session in self.server.session_manager.get_all_sessions():
+            if session.session_id == tx_id:
+                self.expire_session(session)
+                return
+        self.server.global_log.append(
+            "EXPIRE",
+            f"TX:{tx_id} not found in active sessions (already expired/confirmed)",
         )

@@ -46,7 +46,19 @@ def _run_parallel(expire_fn, client_fn):
     return results
 
 
+def _expire_session_by_id(server, session_id):
+    """Wrapper: look up session and expire it. No-op if session already gone."""
+    session = server.session_manager.get_by_session_id(session_id)
+    if session is not None:
+        server.monitor_thread.expire_session(session)
+
+
 def test_confirm_vs_expire_keeps_consistency():
+    import os
+    try:
+        os.remove("data/concert_sync.db")
+    except FileNotFoundError:
+        pass
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("localhost", 0))
         port = s.getsockname()[1]
@@ -56,13 +68,13 @@ def test_confirm_vs_expire_keeps_consistency():
     time.sleep(0.5)
 
     try:
-        client = ConcertClient(host="localhost", port=port)
+        client = ConcertClient(user_id="test_user", host="localhost", port=port)
 
         reserve_response = client.reserve_seat("VIP", 0, 3)
         tx_id = reserve_response["transaction_id"]
 
         results = _run_parallel(
-            expire_fn=lambda: server.monitor_thread.expire_reservation(tx_id),
+            expire_fn=lambda: _expire_session_by_id(server, tx_id),
             client_fn=lambda: client.confirm(tx_id),
         )
 
@@ -84,6 +96,11 @@ def test_confirm_vs_expire_keeps_consistency():
 
 
 def test_cancel_vs_expire_releases_once():
+    import os
+    try:
+        os.remove("data/concert_sync.db")
+    except FileNotFoundError:
+        pass
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("localhost", 0))
         port = s.getsockname()[1]
@@ -93,13 +110,13 @@ def test_cancel_vs_expire_releases_once():
     time.sleep(0.5)
 
     try:
-        client = ConcertClient(host="localhost", port=port)
+        client = ConcertClient(user_id="test_user", host="localhost", port=port)
 
         reserve_response = client.reserve_seat("VIP", 0, 4)
         tx_id = reserve_response["transaction_id"]
 
         results = _run_parallel(
-            expire_fn=lambda: server.monitor_thread.expire_reservation(tx_id),
+            expire_fn=lambda: _expire_session_by_id(server, tx_id),
             client_fn=lambda: client.cancel(tx_id),
         )
 

@@ -1,3 +1,28 @@
+/* ── Color variables ────────────────────────────── */
+$bg-primary: #0f1722;
+$bg-secondary: #10171f;
+$bg-tertiary: #0b1220;
+$bg-hover: #0d1428;
+
+$accent: #9ad4d6;
+$accent-warning: #d4a84b;
+$accent-error: #ff4444;
+
+$border-default: #4f6f8f;
+$border-accent: #2d6a7e;
+$border-input: #3b4a64;
+
+$text-primary: #e0f0ff;
+$text-secondary: #d8e6f5;
+$text-dim: #9fb3c8;
+
+/* ── Spacing scale ──────────────────────────────── */
+$spacing-xs: 1;
+$spacing-sm: 1;
+$spacing-md: 2;
+$spacing-lg: 3;
+
+/* ── Screen ─────────────────────────────────────── */
 Screen {
     layout: vertical;
 }
@@ -8,33 +33,59 @@ Screen {
 }
 
 #controls-panel {
-    width: 42;
+    width: 44;
     min-width: 40;
-    border: round #3b4a64;
-    background: #0f1722;
-    padding: 1;
+    border: round $border-input;
+    background: $bg-primary;
+    padding: $spacing-sm;
     overflow-y: auto;
 }
 
 #dashboard-panel {
     width: 1fr;
-    border: round #2d6a7e;
-    background: #10171f;
-    padding: 1;
+    border: round $border-accent;
+    background: $bg-secondary;
+    padding: $spacing-sm;
     overflow-y: auto;
 }
 
 .panel-title {
     text-style: bold;
-    color: #9ad4d6;
-    margin-top: 1;
+    color: $accent;
+    margin-top: $spacing-md;
+    margin-bottom: $spacing-xs;
+}
+
+.section-divider {
+    color: $border-default;
+    margin-top: $spacing-md;
+    margin-bottom: $spacing-sm;
 }
 
 Input,
 Select,
 Button {
     width: 100%;
-    margin-bottom: 1;
+    margin-bottom: $spacing-sm;
+}
+
+Button:hover {
+    text-style: bold;
+    border: none;
+    background-tint: $accent;
+}
+
+Button:disabled {
+    opacity: 0.35;
+}
+
+Button:focus {
+    border: none;
+}
+
+Input:focus,
+Select:focus {
+    border: none;
 }
 
 #connection-row,
@@ -53,7 +104,7 @@ Button {
 
 #port-input {
     width: 34%;
-    margin-left: 1;
+    margin-left: $spacing-sm;
 }
 
 #row-input,
@@ -62,7 +113,7 @@ Button {
 }
 
 #col-input {
-    margin-left: 1;
+    margin-left: $spacing-sm;
 }
 
 #confirm-btn,
@@ -77,64 +128,87 @@ Button {
 #cancel-btn,
 #apply-log-btn,
 #use-last-active-tx-btn {
-    margin-left: 1;
+    margin-left: $spacing-sm;
 }
 
 #batch-help {
-    color: #9fb3c8;
-    margin-bottom: 1;
+    color: $text-dim;
+    margin-bottom: $spacing-sm;
+    text-style: italic;
 }
 
 #map-section-select {
-    margin-top: 1;
-    margin-bottom: 1;
+    margin-top: $spacing-sm;
+    margin-bottom: $spacing-sm;
 }
 
 #section-table {
     height: 9;
-    margin-top: 1;
+    margin-top: $spacing-xs;
+    max-height: 12;
 }
 
 #session-table {
     height: 13;
-    margin-top: 1;
+    margin-top: $spacing-xs;
+    max-height: 16;
 }
 
 #seat-map-legend {
-    color: #b9cbe0;
-    margin-top: 1;
+    color: $text-dim;
+    margin-top: $spacing-sm;
+    margin-bottom: $spacing-xs;
+    text-style: italic;
 }
 
 #seat-map-table {
-    border: round #5a8f9f;
-    background: #0b1220;
-    padding: 1;
-    margin-top: 1;
+    border: round $border-default;
+    background: $bg-tertiary;
+    padding: $spacing-sm;
+    margin-top: $spacing-xs;
     height: 28;
     overflow-y: auto;
-    color: #e0f0ff;
+    color: $text-primary;
 }
 
 #seat-map-table:hover {
-    border: round #7aafbf;
-    background: #0d1428;
+    border: round $accent;
+    background: $bg-hover;
 }
 
 #request-chart,
 #thread-chart {
-    border: round #4f6f8f;
-    background: #0b1220;
-    padding: 1;
-    margin-top: 1;
+    border: round $border-default;
+    background: $bg-tertiary;
+    padding: $spacing-sm;
+    margin-top: $spacing-sm;
 }
 
 #event-log {
     height: 14;
-    border: round #4f6f8f;
-    margin-top: 1;
+    border: round $border-default;
+    margin-top: $spacing-sm;
+    max-height: 20;
 }
 
 #status-line,
 #connection-status {
-    color: #d8e6f5;
+    color: $text-secondary;
+}
+
+/* ── Login screen ───────────────────────────────── */
+#login-container {
+    align: center middle;
+    width: 40;
+    height: auto;
+    border: round $border-accent;
+    background: $bg-primary;
+    padding: $spacing-lg;
+}
+
+#welcome-label {
+    text-style: bold;
+    color: $accent;
+    text-align: center;
+    margin-bottom: $spacing-md;
 }
