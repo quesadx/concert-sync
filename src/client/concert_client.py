@@ -281,6 +281,75 @@ class ConcertClient:
         response = self.send_request(request)
         return response
 
+    def subscribe_notifications(self, user_id: str) -> socket.socket:
+        """
+        Open a long-lived subscription connection for push notifications.
+
+        Unlike other methods that use short-lived connections, this opens a
+        TCP socket, sends a SUBSCRIBE_NOTIFICATIONS request, and returns the
+        socket for reading notification messages asynchronously.
+
+        Args:
+            user_id: User identifier for notification delivery
+
+        Returns:
+            socket.socket connected to the server for reading notifications
+
+        Raises:
+            ConcertClientError: If subscription fails
+        """
+        import json as _json
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            s.connect((self.host, self.port))
+            request = {"action": "SUBSCRIBE_NOTIFICATIONS", "user_id": user_id}
+            s.sendall(_json.dumps(request).encode())
+            response_data = s.recv(4096)
+            response = _json.loads(response_data.decode())
+            if response.get("status") != "SUCCESS":
+                raise ConcertClientError(f"Subscription failed: {response.get('message', 'unknown')}")
+            return s
+        except ConcertClientError:
+            s.close()
+            raise
+        except Exception as e:
+            s.close()
+            raise ConcertClientError(f"Subscription connection failed: {e}")
+
+    def read_notification(self, sub_socket: socket.socket, timeout: float = None) -> dict | None:
+        """
+        Read a single notification from a subscription socket.
+
+        Args:
+            sub_socket: Socket returned by subscribe_notifications()
+            timeout: Socket timeout in seconds (None = blocking)
+
+        Returns:
+            Dict with notification data, or None if timeout/closed
+        """
+        import json as _json
+        try:
+            if timeout is not None:
+                sub_socket.settimeout(timeout)
+            data = sub_socket.recv(4096)
+            if not data:
+                return None
+            raw = data.decode().strip()
+            if not raw:
+                return None
+            lines = raw.split("\n")
+            for line in lines:
+                line = line.strip()
+                if line:
+                    parsed = _json.loads(line)
+                    if parsed.get("type") == "NOTIFICATION":
+                        return parsed
+            return None
+        except socket.timeout:
+            return None
+        except (json.JSONDecodeError, socket.error) as e:
+            raise ConcertClientError(f"Notification read failed: {e}")
+
     def query_seat_map(self):
         """
         Query full seat matrix by section.
