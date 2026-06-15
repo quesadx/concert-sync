@@ -61,7 +61,7 @@ class ServerDashboardWindow(QMainWindow):
         # ── Stylesheet ───────────────────────────────────────────────────
         stylesheet_path = Path(__file__).parent / "resources" / "styles.qss"
         if stylesheet_path.exists():
-            stylesheet = stylesheet_path.read_text()
+            stylesheet = stylesheet_path.read_text(encoding="utf-8")
             app = QApplication.instance()
             if app:
                 app.setStyleSheet(stylesheet)
