@@ -50,6 +50,7 @@ The ConcertSync server uses **JSON over TCP** for client-server communication.
 | `CANCEL` | Release reservation and revert all seats to AVAILABLE (applies to all seats in tx) | Yes (second attempt on already-cancelled tx_id → idempotent) |
 | `QUERY` | Fetch current seat availability counts by section | Yes (no state change) |
 | `QUERY_SEAT_MAP` | Fetch full seat-state matrix by section (AVAILABLE/RESERVED/SOLD) | Yes (no state change) |
+| `SUBSCRIBE_NOTIFICATIONS` | Open a long-lived connection for async push notifications | No (new connection each time) |
 
 ---
 
@@ -191,7 +192,76 @@ The ConcertSync server uses **JSON over TCP** for client-server communication.
 
 ---
 
+### SUBSCRIBE_NOTIFICATIONS Request
+
+```json
+{
+  "action": "SUBSCRIBE_NOTIFICATIONS",
+  "user_id": "<user_id>"
+}
+```
+
+**Field Definitions:**
+
+| Field | Type | Required | Constraints | Example |
+|-------|------|----------|-------------|---------|
+| `action` | string | ✅ | Literal: `"SUBSCRIBE_NOTIFICATIONS"` | `"SUBSCRIBE_NOTIFICATIONS"` |
+| `user_id` | string | ✅ | Non-empty string identifying the user | `"user123"` |
+
+**Behavior:**
+
+- Server registers this connection for push notification delivery
+- Connection stays open (long-lived) — server sends async JSON notifications as they occur
+- After subscribing, the client receives a SUCCESS response, then enters a read loop
+- Subsequent data on this socket are `NOTIFICATION` push messages (one JSON object per line, newline-delimited)
+- Idle timeout: 600s with no messages — server closes the connection
+- If a subscription for the same `user_id` already exists, the old subscription is replaced
+
+---
+
 ## Response Schemas
+
+### SUCCESS Response (SUBSCRIBE_NOTIFICATIONS)
+
+```json
+{
+  "status": "SUCCESS",
+  "message": "Subscribed to notifications"
+}
+```
+
+**Field Definitions:**
+
+| Field | Type | Presence | Semantics |
+|-------|------|----------|-----------|
+| `status` | string | Always | Literal: `"SUCCESS"` |
+| `message` | string | Always | Confirmation message |
+
+---
+
+### NOTIFICATION Response (async push)
+
+Server pushes these to subscribed clients as JSON lines over the subscription socket after a SUBSCRIBE_NOTIFICATIONS handshake has completed.
+
+```json
+{
+  "type": "NOTIFICATION",
+  "notification_type": "TTL_WARNING",
+  "message": "...",
+  "timestamp": "2026-06-14T18:45:00"
+}
+```
+
+**Field Definitions:**
+
+| Field | Type | Presence | Semantics |
+|-------|------|----------|-----------|
+| `type` | string | Always | Literal: `"NOTIFICATION"` |
+| `notification_type` | string | Always | One of: `TTL_WARNING`, `CONFIRMED`, `EXPIRED`, `AVAILABILITY`, `SUBSCRIBED`, `UNSUBSCRIBED` |
+| `message` | string | Always | Human-readable notification text in Spanish |
+| `timestamp` | string | Always | ISO 8601 timestamp of notification generation |
+
+---
 
 ### SUCCESS Response (RESERVE)
 
@@ -416,6 +486,7 @@ Error codes follow pattern: `ERR_<CATEGORY>_<REASON>` or `INTERNAL_ERROR`
 | **ERR_TRANSACTION_NOT_FOUND** | 404 | `transaction_id` not in reservation table | `"Transaction 'tx_99999' not found"` |
 | **ERR_TRANSACTION_NOT_ACTIVE** | 409 | `transaction_id` exists but not in ACTIVE state | `"Transaction 'tx_12345' is CONFIRMED, not ACTIVE"` |
 | **ERR_INVALID_ACTION** | 400 | `action` not in (RESERVE/CONFIRM/CANCEL/QUERY) | `"Unknown action: REFUND"` |
+| **ERR_SUBSCRIBE_FAILED** | 500 | Subscription processing failed | `"Failed to subscribe user 'user123' to notifications"` |
 | **INTERNAL_ERROR** | 500 | Unexpected server exception (should be rare) | `"Exception: <actual exception message>"` |
 
 ### Error Code Determination Flow
@@ -718,7 +789,7 @@ Error codes follow pattern: `ERR_<CATEGORY>_<REASON>` or `INTERNAL_ERROR`
 All requests MUST be validated server-side before processing:
 
 1. **JSON Parse Validation:** Payload must be valid UTF-8 JSON
-2. **Action Validation:** `action` field must exist and be one of (RESERVE, CONFIRM, CANCEL, QUERY)
+2. **Action Validation:** `action` field must exist and be one of (RESERVE, RESERVE_BATCH, RESERVE_SELECTED, CONFIRM, CANCEL, QUERY, QUERY_SEAT_MAP, SUBSCRIBE_NOTIFICATIONS)
 3. **Field Presence:** Required fields for action must be present
 4. **Type Validation:** Fields must be correct types (int for row/col, string for transaction_id)
 5. **Range Validation:** row/col must be within section bounds

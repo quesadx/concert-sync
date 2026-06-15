@@ -175,8 +175,30 @@ def error_invalid_action(action: str) -> Dict[str, Any]:
     """Build ERR_INVALID_ACTION error response."""
     return build_error_response(
         ErrorCode.INVALID_ACTION,
-        f"Unknown action: {action}. Valid: RESERVE, RESERVE_BATCH, CONFIRM, CANCEL, QUERY, QUERY_SEAT_MAP"
+        f"Unknown action: {action}. Valid: RESERVE, RESERVE_BATCH, RESERVE_SELECTED, CONFIRM, CANCEL, QUERY, QUERY_SEAT_MAP, SUBSCRIBE_NOTIFICATIONS"
     )
+
+
+def build_notification_response(notification_type: str, message: str) -> Dict[str, Any]:
+    """
+    Build an async NOTIFICATION push response.
+
+    Sent by the NotifierThread to subscribed clients over their long-lived
+    subscription socket. NOT a response to an action — an async push.
+
+    Args:
+        notification_type: One of NotificationType enum values (e.g., "TTL_WARNING")
+        message: Human-readable notification message
+
+    Returns:
+        Dict with type="NOTIFICATION", notification_type, message, and timestamp
+    """
+    return {
+        "type": "NOTIFICATION",
+        "notification_type": notification_type,
+        "message": message,
+        "timestamp": __import__("datetime").datetime.now().isoformat(),
+    }
 
 
 def error_internal(exception_msg: str) -> Dict[str, Any]:
