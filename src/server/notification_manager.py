@@ -253,3 +253,51 @@ class NotificationManager:
                 except Exception:
                     pass
             self._subscribers.clear()
+
+
+class NotifierThread(threading.Thread):
+    """Daemon thread that polls notification queues and delivers messages.
+
+    Iterates all subscribers continuously, dequeuing pending notifications
+    and sending them as JSON lines over each subscriber's TCP socket.
+
+    Low-latency design: 50ms sleep between iterations provides sub-100ms
+    typical delivery while avoiding busy-waiting.
+
+    Socket errors during delivery trigger automatic unsubscription.
+    """
+
+    def __init__(self, server):
+        """Initialize the notifier thread.
+
+        Args:
+            server: ConcertServer instance holding notification_manager.
+        """
+        super().__init__()
+        self.server = server
+        self.daemon = True
+
+    def run(self):
+        while self.server.running:
+            subscribers = self.server.notification_manager.get_all_subscribers()
+            for user_id in subscribers:
+                notif = self.server.notification_manager.get_next_notification(
+                    user_id, timeout=0.1
+                )
+                if notif is None:
+                    continue
+                sub = None
+                with self.server.notification_manager._lock:
+                    sub = self.server.notification_manager._subscribers.get(user_id)
+                if sub is None:
+                    continue
+                try:
+                    msg = (json.dumps(notif) + "\n").encode()
+                    sub.socket.sendall(msg)
+                except (socket.error, BrokenPipeError, ConnectionResetError) as e:
+                    self.server.notification_manager.unsubscribe(user_id)
+                    self.server.global_log.append(
+                        "NOTIFICATION",
+                        f"User:{user_id} disconnected from notifications: {e}",
+                    )
+            time.sleep(0.05)
