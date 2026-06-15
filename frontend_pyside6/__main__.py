@@ -10,7 +10,8 @@ import os
 import sys
 import argparse
 
-os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
+if sys.platform == "linux":
+    os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
 
 from PySide6.QtWidgets import QApplication  # noqa: E402 — must be after env var
 
