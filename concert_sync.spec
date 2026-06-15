@@ -34,7 +34,7 @@ datas = [
 # ── Analysis ─────────────────────────────────────────────────────────
 a = Analysis(
     ["scripts/pyside6_entry.py"],
-    pathex=[str(Path(__file__).parent)],
+    pathex=[str(Path.cwd())],  # cwd = project root (build scripts cd there)
     binaries=[],
     datas=datas,
     hiddenimports=[
