@@ -5,7 +5,7 @@ from src.server.concert_server import ConcertServer
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ConcertSync Server")
-    parser.add_argument("--host", default="localhost", help="Host to bind to")
+    parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
     parser.add_argument("--port", type=int, default=9999, help="Port to listen on")
     args = parser.parse_args()
 
