@@ -30,8 +30,6 @@
             python314Packages.flake8
             python314Packages.textual
             python314Packages.pyside6
-            python314Packages.qrcode
-            python314Packages.pillow
             uv
 
             nodejs

@@ -6,7 +6,7 @@ threading, lock hierarchies, and semaphores. Two frontends available: a **PySide
 desktop GUI** (recommended) and a **Textual terminal TUI** (legacy).
 
 Features **async push notifications** (TTL warnings, confirmations, expiry) and
-**automatic QR ticket generation** for every confirmed purchase.
+**automatic ticket generation** for every confirmed purchase.
 
 ## Quick Start
 
@@ -27,8 +27,8 @@ python -m frontend_pyside6              # Terminal 2: start GUI
 | Setup | Command |
 |---|---|
 | Nix (recommended) | `nix develop` — enters shell with all deps |
-| uv | `uv sync --group pyside6 --group tickets` |
-| pip | `pip install pyside6 qrcode pillow` |
+| uv | `uv sync --group pyside6` |
+| pip | `pip install pyside6` |
 
 Port **9999** must be available.
 
@@ -57,7 +57,7 @@ python -m frontend_pyside6 --mode dashboard
 1. Click **Connect** in the left panel (enter a user ID or leave blank for auto-generated).
 2. Click an **AVAILABLE** seat (green) to reserve it immediately — it turns blue.
 3. The **Transaction ID** auto-populates in the input field.
-4. Click **Confirm** to finalize the purchase (seat turns red — SOLD). A **QR ticket** is generated in `tickets/`.
+4. Click **Confirm** to finalize the purchase (seat turns red — SOLD). A **ticket** file is generated in `tickets/`.
 5. Click **Cancel** to release the seat.
 6. Switch sections with the **VIP / Preferential / General** buttons.
 7. Click **Activity Center** to see event logs, active sessions, and stats.
@@ -86,6 +86,75 @@ python -m frontend_pyside6        # start GUI
 | GENERAL | 20 × 20 | 400 |
 
 **Colors (GUI):** Green = Available, Blue = Yours, Orange = Reserved (other user), Red = Sold, Purple = Pending.
+
+## Demo Multi-usuario (Defensa)
+
+Para que compañeros se conecten a **tu servidor** desde sus laptops en el mismo laboratorio:
+
+### 1. Obtener tu IP local
+
+```bash
+ip addr show | grep 'inet ' | grep -v 127.0.0.1
+# Ejemplo: 192.168.1.42
+```
+
+### 2. Servidor en tu máquina
+
+```bash
+nix develop --command python main.py
+# Escucha en 0.0.0.0:9999 — accesible desde toda la red local
+```
+
+### 3. Compañeros se conectan desde sus laptops
+
+**Opción A — Script Python (sin instalar nada):** Solo necesitan Python.
+
+```bash
+python3 -c "
+import socket, json
+
+def cmd(ip, a, s='GENERAL'):
+    c = socket.socket(); c.settimeout(5)
+    c.connect((ip, 9999))
+    c.sendall(json.dumps({'action': a, 'section': s}).encode())
+    r = json.loads(c.recv(4096)); c.close(); return r
+
+ip = '192.168.1.42'  # CAMBIAR por tu IP
+r = cmd(ip, 'QUERY_SEAT_MAP', 'VIP')
+disp = sum(1 for row in r['seat_map'] for s in row if s == 'AVAILABLE')
+print(f'VIP: {disp} libres')
+r = cmd(ip, 'RESERVE', 'VIP')
+if r['status'] == 'SUCCESS':
+    tx = r['transaction_id']
+    r2 = cmd(ip, 'CONFIRM', 'VIP')
+    print(f'Comprada TX:{tx}')
+else:
+    print(f'Error: {r}')
+"
+```
+
+**Opción B — Ejecutable (sin Python):** Reparte un `.exe` a tus compañeros.
+
+```bash
+# En tu máquina Windows, construís el ejecutable:
+pip install pyinstaller
+pyinstaller --onefile --console --name comprar scripts/simple_client.py
+
+# Copiás dist/comprar.exe a un USB y lo pasás
+```
+
+Tus compañeros ejecutan `comprar.exe 192.168.1.42` (tu IP) desde su carpeta.
+
+> ⚠️ **Importante para Windows:**
+> 1. **Firewall** — Al iniciar el servidor, Windows preguntará si permitís conexiones entrantes en el puerto 9999. Aceptá.
+> 2. **WSL no funciona para esto** — Si ejecutás el servidor desde WSL, tu IP es la de WSL (no visible para los demás). Mejor corré `python main.py` directamente desde **PowerShell o cmd** (con Python instalado en Windows), así escucha en la IP real de tu máquina.
+> 3. **Antivirus** — Puede marcar el `.exe` como falso positivo por ser compilado con PyInstaller. Tus compañeros pueden ignorar la advertencia.
+
+### 4. Ver conexiones activas en el servidor
+
+Las conexiones entrantes aparecen en los logs del servidor y en la GUI local. Cada comprador ocupa un asiento real — el sistema maneja concurrencia con locks y semáforos sin race conditions.
+
+> **Tips para la defensa:** Abrí la GUI (`--mode both` o `desktop_launcher.py`) en un proyector para mostrar el mapa actualizándose en vivo mientras compañeros reservan desde sus máquinas.
 
 ## Load Generator (Demo para profesora)
 
@@ -139,17 +208,16 @@ print(s.recv(4096).decode())  # SUCCESS response
 
 Protocol reference: `docs/protocol-contract-v1.md` §SUBSCRIBE_NOTIFICATIONS.
 
-## QR Tickets
+## Tickets
 
-Every CONFIRM generates a scannable QR ticket in `tickets/`:
+Every CONFIRM generates a ticket file in `tickets/`:
 
 ```
 tickets/
-├── ticket_tkt-000001.txt   # Human-readable (Unicode box-drawing)
-└── ticket_tkt-000001.png   # QR code (scannable by camera apps)
+└── ticket_tkt-000001.txt   # Unicode box-drawing format
 ```
 
-The QR contains plain text (no network required): ticket ID, zone, seats, date.  
+The ticket file contains seat, zone, date, and transaction information.  
 Ticket generation runs in a background thread — it never delays the CONFIRM response.
 
 ## Reset — Limpiar estado guardado

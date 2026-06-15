@@ -41,9 +41,7 @@ class TestTicketGenerator:
         )
         assert result is True
         txt_path = os.path.join(self.test_dir, "ticket_tkt-000001.txt")
-        png_path = os.path.join(self.test_dir, "ticket_tkt-000001.png")
         assert os.path.exists(txt_path), "TXT file not found"
-        assert os.path.exists(png_path), "PNG file not found"
 
     def test_ticket_txt_content(self):
         self.tg.generate_ticket(
@@ -61,21 +59,6 @@ class TestTicketGenerator:
         assert "CONFIRMADO" in content
         assert "tx-456" in content
         assert "F5-K" in content  # row=5, col=10 -> col letter K
-
-    def test_ticket_qr_scannable(self):
-        """Verify PNG is a valid image (QR code)."""
-        self.tg.generate_ticket(
-            ticket_id="TKT-000003",
-            section_name="GENERAL",
-            seats=[(0, 0)],
-            transaction_id="tx-789",
-            timestamp=1718383500.0,
-        )
-        png_path = os.path.join(self.test_dir, "ticket_tkt-000003.png")
-        from PIL import Image
-        img = Image.open(png_path)
-        assert img.size[0] >= 100  # QR should be at least 100px
-        assert img.size[1] >= 100
 
     def test_generate_ticket_failure_logged(self):
         """When ticket dir is invalid, error is logged but no exception."""

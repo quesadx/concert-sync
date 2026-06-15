@@ -1,16 +1,14 @@
 """
-Ticket generator for ConcertSync QR and TXT ticket output (v1.0).
+Ticket generator for ConcertSync TXT ticket output (v1.0).
 
-Generates scannable QR code PNGs and human-readable text files with
-Unicode box-drawing formatting for confirmed reservations.
+Generates human-readable text files with Unicode box-drawing formatting
+for confirmed reservations.
 """
 
 import datetime
 import threading
 from pathlib import Path
 from typing import Any, List, Tuple
-
-import qrcode
 
 
 class TicketGenerator:
@@ -84,27 +82,6 @@ class TicketGenerator:
         lines.append(bottom)
         return "".join(lines)
 
-    def _build_qr_content(
-        self,
-        ticket_id: str,
-        section_name: str,
-        seats: List[Tuple[int, int]],
-        transaction_id: str,
-        timestamp_str: str,
-    ) -> str:
-        parts = [
-            f"TICKET: {ticket_id}",
-            f"ZONA: {section_name}",
-            "ASIENTOS:",
-        ]
-        for seat in seats:
-            parts.append(self._format_seat(seat))
-        parts.append("FECHA:")
-        parts.append(timestamp_str)
-        parts.append(f"TRANSACCION: {transaction_id}")
-        parts.append("ESTADO: CONFIRMADO")
-        return "\n".join(parts)
-
     def _write_txt(self, path: Path, content: str) -> bool:
         try:
             path.write_text(content, encoding="utf-8")
@@ -117,19 +94,6 @@ class TicketGenerator:
             self._log.append("ERROR", f"TicketGenerator: TXT write failed: {e}")
             return False
 
-    def _write_png(self, path: Path, content: str) -> bool:
-        try:
-            img = qrcode.make(content)
-            img.save(path)
-            self._log.append(
-                "TICKET",
-                f"QR ticket saved: {path}",
-            )
-            return True
-        except Exception as e:
-            self._log.append("ERROR", f"TicketGenerator: QR write failed: {e}")
-            return False
-
     def generate_ticket(
         self,
         ticket_id: str,
@@ -138,11 +102,10 @@ class TicketGenerator:
         transaction_id: str,
         timestamp: float = None,
     ) -> bool:
-        """Generate TXT and QR PNG ticket files for a confirmed reservation.
+        """Generate a TXT ticket file for a confirmed reservation.
 
-        Produces two files in the tickets/ directory:
+        Produces one file in the tickets/ directory:
           - tickets/ticket_<lower_id>.txt (Unicode box-drawing format)
-          - tickets/ticket_<lower_id>.png  (QR code with plain text content)
 
         Args:
             ticket_id: Human-readable ticket identifier (e.g., 'TKT-000001')
@@ -159,7 +122,6 @@ class TicketGenerator:
 
         lower_id = ticket_id.lower()
         txt_path = self._tickets_dir / f"ticket_{lower_id}.txt"
-        png_path = self._tickets_dir / f"ticket_{lower_id}.png"
 
         if timestamp is None:
             timestamp = datetime.datetime.now().timestamp()
@@ -168,12 +130,8 @@ class TicketGenerator:
         txt_content = self._build_txt_content(
             ticket_id, section_name, seats, transaction_id, timestamp_str,
         )
-        qr_content = self._build_qr_content(
-            ticket_id, section_name, seats, transaction_id, timestamp_str,
-        )
 
         with self._mutex:
             txt_ok = self._write_txt(txt_path, txt_content)
-            png_ok = self._write_png(png_path, qr_content)
 
-        return txt_ok and png_ok
+        return txt_ok
