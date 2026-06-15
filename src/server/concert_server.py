@@ -19,7 +19,7 @@ from src.utils.ticket_generator import TicketGenerator
 
 
 class ConcertServer:
-    def __init__(self, host="localhost", port=SERVER_PORT):
+    def __init__(self, host="0.0.0.0", port=SERVER_PORT):
         self.host = host
         self.port = port
         self.seat_matrix = SeatMatrix()
