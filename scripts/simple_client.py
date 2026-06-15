@@ -16,8 +16,13 @@ def send(host: str, action: str, section: str = "GENERAL") -> dict:
     try:
         s.connect((host, SERVER_PORT))
         s.sendall(json.dumps({"action": action, "section": section}).encode())
-        data = s.recv(4096)
-        return json.loads(data)
+        chunks = []
+        while True:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        return json.loads(b"".join(chunks))
     except Exception as e:
         return {"status": "ERROR", "message": str(e)}
     finally:
