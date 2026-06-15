@@ -1,7 +1,7 @@
 import threading
 import time
 
-from src.utils.enums import ReservationStatus, SeatState, Section
+from src.utils.enums import NotificationType, ReservationStatus, SeatState, Section
 
 
 class MonitorThread(threading.Thread):
@@ -18,6 +18,8 @@ class MonitorThread(threading.Thread):
             for session in expired:
                 self.expire_session(session)
 
+            self._check_ttl_warnings()
+
     def _group_seats_by_section(self, seats):
         seats_by_section = {}
         for section, row, col in seats:
@@ -29,6 +31,45 @@ class MonitorThread(threading.Thread):
     def _ordered_sections(self, sections):
         section_set = set(sections)
         return [section for section in Section if section in section_set]
+
+    def _check_ttl_warnings(self):
+        TTL_WARNING_THRESHOLD = 30
+        now = time.time()
+        for user_id in self.server.notification_manager.get_all_subscribers():
+            session = self.server.session_manager.get_by_user_id(user_id)
+            if session is None or session.state.value != "ACTIVE":
+                continue
+            remaining = session.ttl_secs - (now - session.last_activity)
+            if 0 < remaining <= TTL_WARNING_THRESHOLD:
+                self.server.notification_manager.append(
+                    user_id,
+                    NotificationType.TTL_WARNING,
+                    "[NOTIFICACIÓN]\nSu reserva expirará en 30 segundos.",
+                )
+                self.server.global_log.append(
+                    "NOTIFICATION",
+                    f"User:{user_id} TTL warning sent ({int(remaining)}s remaining)",
+                )
+
+    def _notify_availability_if_needed(self, section):
+        section_name = section.name
+        available_count = 0
+        for row in self.server.seat_matrix.seats[section]:
+            for seat in row:
+                if seat == SeatState.AVAILABLE:
+                    available_count += 1
+        was_full = self.server.notification_manager.is_section_full(section_name)
+        self.server.notification_manager.set_section_full(section_name, available_count == 0)
+        if was_full and available_count > 0:
+            message = f"[NOTIFICACIÓN]\nHay nuevos asientos disponibles en la zona {section_name}."
+            self.server.notification_manager.append_to_all(
+                NotificationType.AVAILABILITY,
+                message,
+            )
+            self.server.global_log.append(
+                "NOTIFICATION",
+                f"Section:{section_name} availability notification (was full, now {available_count} available)",
+            )
 
     def expire_session(self, session):
         seats_by_section = self._group_seats_by_section(session.seats)
@@ -61,7 +102,21 @@ class MonitorThread(threading.Thread):
                 if count > 0:
                     self.server.semaphore_mgr.release_multiple(section, count)
 
+            for section in ordered_sections:
+                if released_counts[section] > 0:
+                    self._notify_availability_if_needed(section)
+
         self.server.store.save_all_seats(self.server.seat_matrix)
+
+        self.server.notification_manager.append(
+            session.user_id,
+            NotificationType.EXPIRED,
+            "[NOTIFICACIÓN]\nSu reserva ha expirado y los asientos fueron liberados.",
+        )
+        self.server.global_log.append(
+            "NOTIFICATION",
+            f"User:{session.user_id} EXPIRED notification sent",
+        )
 
         total = sum(released_counts.values())
         self.server.global_log.append(

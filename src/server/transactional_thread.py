@@ -1,15 +1,18 @@
 import json
+import socket
 import threading
+import time
 from collections import defaultdict
 
 from src.utils.config import RESERVATION_TTL, SECTION_CONFIG
-from src.utils.enums import ReservationStatus, Section, SeatState
+from src.utils.enums import NotificationType, ReservationStatus, Section, SeatState
 from src.utils.protocol_validator import (
     validate_request,
     validate_reserve_payload,
     validate_reserve_batch_payload,
     validate_confirm_payload,
     validate_cancel_payload,
+    validate_subscribe_payload,
     ErrorCode,
 )
 from src.utils.error_responses import (
@@ -61,6 +64,9 @@ class TransactionalThread(threading.Thread):
                 response = self.handle_query(request)
             elif action == "QUERY_SEAT_MAP":
                 response = self.handle_query_seat_map(request)
+            elif action == "SUBSCRIBE_NOTIFICATIONS":
+                self.handle_subscribe(request)
+                return
             else:
                 response = error_invalid_action(action)
 
@@ -73,10 +79,11 @@ class TransactionalThread(threading.Thread):
             except Exception:
                 pass  # Socket already closed or unreachable
         finally:
-            try:
-                self.client_socket.close()
-            except Exception:
-                pass
+            if not getattr(self, '_socket_transferred', False):
+                try:
+                    self.client_socket.close()
+                except Exception:
+                    pass
             self.server.unregister_thread(self)
 
     def _group_reservation_seats_by_section(self, reservation):
@@ -104,6 +111,26 @@ class TransactionalThread(threading.Thread):
     def _ordered_sections(self, sections):
         section_set = set(sections)
         return [section for section in Section if section in section_set]
+
+    def _notify_availability_if_needed(self, section):
+        section_name = section.name
+        available_count = 0
+        for row in self.server.seat_matrix.seats[section]:
+            for seat in row:
+                if seat == SeatState.AVAILABLE:
+                    available_count += 1
+        was_full = self.server.notification_manager.is_section_full(section_name)
+        self.server.notification_manager.set_section_full(section_name, available_count == 0)
+        if was_full and available_count > 0:
+            message = f"[NOTIFICACIÓN]\nHay nuevos asientos disponibles en la zona {section_name}."
+            self.server.notification_manager.append_to_all(
+                NotificationType.AVAILABILITY,
+                message,
+            )
+            self.server.global_log.append(
+                "NOTIFICATION",
+                f"Section:{section_name} availability notification (was full, now {available_count} available)",
+            )
 
     def handle_reserve(self, request):
         # Validate RESERVE-specific payload
@@ -387,6 +414,31 @@ class TransactionalThread(threading.Thread):
             self.server.store.save_all_seats(self.server.seat_matrix)
             self.server.store.delete_session(confirmed_user_id)
 
+            self.server.notification_manager.append(
+                confirmed_user_id,
+                NotificationType.CONFIRMED,
+                "[NOTIFICACIÓN]\nCompra confirmada correctamente.",
+            )
+            self.server.global_log.append(
+                "NOTIFICATION",
+                f"Session:{session_id} User:{confirmed_user_id} CONFIRMED notification sent",
+            )
+
+            # Start background ticket generation after successful CONFIRM
+            ticket_id = self.server.notification_manager.generate_ticket_id()
+            seat_list = [(r, c) for section, r, c in current_session.seats]
+            section_name = "+".join(s.name for s in ordered_sections) if ordered_sections else "UNKNOWN"
+            ticket_thread = threading.Thread(
+                target=self.server.ticket_generator.generate_ticket,
+                args=(ticket_id, section_name, seat_list, session_id, time.time()),
+                daemon=True,
+            )
+            ticket_thread.start()
+            self.server.global_log.append(
+                "TICKET",
+                f"Ticket {ticket_id} generation started for Session:{session_id}",
+            )
+
             return build_success_response(transaction_id=session_id)
 
         except Exception as e:
@@ -447,6 +499,10 @@ class TransactionalThread(threading.Thread):
                 for section, count in released_counts.items():
                     if count > 0:
                         self.server.semaphore_mgr.release_multiple(section, count)
+
+                for section in ordered_sections:
+                    if released_counts[section] > 0:
+                        self._notify_availability_if_needed(section)
 
             self.server.global_log.append(
                 "CANCEL",
@@ -543,6 +599,55 @@ class TransactionalThread(threading.Thread):
         except Exception as e:
             self.server.global_log.append("ERROR", f"QUERY_SEAT_MAP failed: {str(e)}")
             return error_internal(str(e))
+
+    def handle_subscribe(self, request):
+        """Handle SUBSCRIBE_NOTIFICATIONS request.
+
+        Registers the client socket for push notification delivery and
+        enters a keep-alive loop to detect client disconnect.
+
+        This method sends its own response and takes ownership of the
+        client socket. The _socket_transferred flag prevents the
+        run() finally block from double-closing the socket.
+        """
+        # Validate SUBSCRIBE_NOTIFICATIONS-specific payload
+        is_valid, error_msg = validate_subscribe_payload(request)
+        if not is_valid:
+            response = build_error_response(ErrorCode.INVALID_PAYLOAD, error_msg)
+            try:
+                self.client_socket.send(json.dumps(response).encode())
+            except Exception:
+                pass
+            return
+
+        user_id = request.get("user_id")
+        try:
+            self.server.notification_manager.subscribe(user_id, self.client_socket)
+            self._socket_transferred = True
+
+            # Send success response
+            response = build_success_response(
+                message="Subscribed to notifications"
+            )
+            self.client_socket.send(json.dumps(response).encode())
+        except Exception as e:
+            self.server.global_log.append(
+                "ERROR", f"SUBSCRIBE failed for user {user_id}: {str(e)}"
+            )
+            return
+
+        # Keep-alive loop: detect client disconnect via long timeout recv
+        self.client_socket.settimeout(600)
+        try:
+            while self.server.running:
+                try:
+                    data = self.client_socket.recv(4096)
+                    if not data:
+                        break
+                except socket.timeout:
+                    continue
+        finally:
+            self.server.notification_manager.unsubscribe(user_id)
 
     def _count_section_seats(self, section):
         """

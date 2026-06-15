@@ -44,4 +44,5 @@ CATEGORY_COLORS = {
     "ERROR": palette.CAT_ERROR,     # Red — protocol errors, connection failures
     "SERVER": palette.CAT_SERVER,   # Grey — server lifecycle events
     "EXPIRE": palette.CAT_EXPIRE,   # Brown — TTL expiration events
+    "NOTIFICATION": palette.CAT_NOTIFICATION,  # Purple — push notifications
 }

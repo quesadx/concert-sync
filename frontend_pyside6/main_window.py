@@ -8,6 +8,7 @@ the seat map across all connected clients.
 
 from __future__ import annotations
 
+import socket
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Set
@@ -38,7 +39,10 @@ from frontend_pyside6.workers.network_worker import (
     CancelWorker,
     ConfirmWorker,
     PollWorker,
+    ReadNotificationWorker,
+    ReserveSelectedWorker,
     ReserveWorker,
+    SubscribeNotificationsWorker,
     run_worker,
 )
 from frontend_pyside6.widgets.connection_panel import ConnectionPanel
@@ -111,6 +115,7 @@ class ConcertMainWindow(QMainWindow):
         # ── Log buffer for replaying events into the log dialog ────────────
         self._log_buffer: list[tuple[str, str]] = []
         self._log_buffer_max = 200
+        self._notif_sock: socket.socket | None = None
 
         # ── Log tailer (mirrors TUI LogTailer init) ───────────────────────
         self.log_tailer = LogTailer(Path("logs/system.log"))
@@ -379,6 +384,10 @@ class ConcertMainWindow(QMainWindow):
             self.status_bar.showMessage(f"Connected to {host}:{port} as {self.user_id}")
             self.connection_panel.set_connected(True, host, port)
             self._log_event("LOCAL", f"Connected to {host}:{port}")
+
+            # Subscribe to push notifications in background
+            self._subscribe_notifications()
+
             self._refresh_all()
         except ConcertClientError as exc:
             self.client = None
@@ -397,6 +406,12 @@ class ConcertMainWindow(QMainWindow):
         own reserved coordinates, and all rendered widgets. Mirrors the
         TUI disconnect behavior.
         """
+        if self._notif_sock is not None:
+            try:
+                self._notif_sock.close()
+            except OSError:
+                pass
+            self._notif_sock = None
         self.client = None
         self.sessions.clear()
         self._click_inflight.clear()
@@ -443,6 +458,49 @@ class ConcertMainWindow(QMainWindow):
         worker.finished.connect(self._on_poll_success)
         worker.error.connect(self._on_poll_error)
         run_worker(worker)
+
+        # Also check for pending push notifications (non-blocking)
+        if self._notif_sock is not None:
+            self._read_pending_notifications()
+
+    def _read_pending_notifications(self) -> None:
+        """Read any pending push notifications from the subscription socket."""
+        worker = ReadNotificationWorker(self._notif_sock)
+        worker.finished.connect(self._on_notification)
+        run_worker(worker)
+
+    def _subscribe_notifications(self) -> None:
+        """Subscribe to push notifications in background."""
+        if self.client is None:
+            return
+        worker = SubscribeNotificationsWorker(self.client)
+        worker.finished.connect(self._on_subscribe_success)
+        worker.error.connect(self._on_subscribe_error)
+        run_worker(worker)
+
+    @Slot(object)
+    def _on_subscribe_success(self, sub_sock: socket.socket) -> None:
+        """Store the subscription socket for notification reading."""
+        if self._closing:
+            return
+        self._notif_sock = sub_sock
+        self._log_event("LOCAL", "Subscribed to push notifications")
+
+    @Slot(str)
+    def _on_subscribe_error(self, error_msg: str) -> None:
+        """Log subscription failure (non-fatal)."""
+        if self._closing:
+            return
+        self._log_event("ERROR", f"Notification subscribe failed: {error_msg}")
+
+    @Slot(dict)
+    def _on_notification(self, notif: dict) -> None:
+        """Display a push notification in the event log and notification feed."""
+        if self._closing:
+            return
+        ntype = notif.get("notification_type", "UNKNOWN")
+        msg = notif.get("message", "")
+        self._log_event("NOTIFICATION", f"[{ntype}] {msg}")
 
     @Slot(dict, dict, object)
     def _on_poll_success(self, sections: dict, seat_map_payload: dict, user_session: object) -> None:

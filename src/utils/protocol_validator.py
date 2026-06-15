@@ -32,6 +32,7 @@ class ErrorCode:
     TRANSACTION_NOT_FOUND = "ERR_TRANSACTION_NOT_FOUND"  # 404: tx_id not in table
     TRANSACTION_NOT_ACTIVE = "ERR_TRANSACTION_NOT_ACTIVE"  # 409: tx_id != ACTIVE
     INVALID_ACTION = "ERR_INVALID_ACTION"  # 400: Unknown action
+    SUBSCRIBE_FAILED = "ERR_SUBSCRIBE_FAILED"  # 400/500: Subscribe error
     INTERNAL_ERROR = "INTERNAL_ERROR"  # 500: Unexpected exception
 
 
@@ -109,6 +110,7 @@ def validate_action(
         "CANCEL",
         "QUERY",
         "QUERY_SEAT_MAP",
+        "SUBSCRIBE_NOTIFICATIONS",
     }
     if action not in valid_actions:
         return (
@@ -391,6 +393,32 @@ def validate_query_seat_map_payload(
     return True, None
 
 
+def validate_subscribe_payload(request: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+    """
+    Validate SUBSCRIBE_NOTIFICATIONS request: user_id field.
+
+    Args:
+        request: Parsed JSON dict (must have action="SUBSCRIBE_NOTIFICATIONS")
+
+    Returns:
+        (is_valid, error_message)
+    """
+    if "user_id" not in request:
+        return False, "SUBSCRIBE_NOTIFICATIONS: Missing required field: user_id"
+
+    user_id = request.get("user_id")
+    if not isinstance(user_id, str):
+        return (
+            False,
+            f"SUBSCRIBE_NOTIFICATIONS: Field 'user_id' must be string, got {type(user_id).__name__}",
+        )
+
+    if not user_id.strip():
+        return False, "SUBSCRIBE_NOTIFICATIONS: Field 'user_id' cannot be empty"
+
+    return True, None
+
+
 # ============================================================================
 # COORDINATED VALIDATION FLOW
 # ============================================================================
@@ -439,6 +467,8 @@ def validate_request(data: str) -> Tuple[bool, Optional[str], Optional[Dict[str,
         is_valid, msg = validate_query_payload(parsed)
     elif action == "QUERY_SEAT_MAP":
         is_valid, msg = validate_query_seat_map_payload(parsed)
+    elif action == "SUBSCRIBE_NOTIFICATIONS":
+        is_valid, msg = validate_subscribe_payload(parsed)
 
     if not is_valid:
         return False, msg, None

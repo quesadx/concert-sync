@@ -5,6 +5,7 @@ from collections import defaultdict
 
 from src.server.listener_thread import ListenerThread
 from src.server.monitor_thread import MonitorThread
+from src.server.notification_manager import NotificationManager, NotifierThread
 from src.server.session_manager import SessionManager, UserSession
 from src.shared_resources.global_log import GlobalLog
 from src.shared_resources.reservation_table import ReservationTable
@@ -14,6 +15,7 @@ from src.shared_resources.sqlite_store import SqliteStore
 from src.synchronization.mutex_manager import MutexManager
 from src.utils.config import SERVER_PORT
 from src.utils.enums import ReservationStatus, SeatState, Section
+from src.utils.ticket_generator import TicketGenerator
 
 
 class ConcertServer:
@@ -27,6 +29,9 @@ class ConcertServer:
         self.mutex_manager = MutexManager(self.seat_matrix, self.reservation_table)
         self.session_manager = SessionManager()
         self.store = SqliteStore()
+        self.notification_manager = NotificationManager(self.global_log)
+        self.ticket_generator = TicketGenerator(self.global_log)
+        self.notifier_thread = None
 
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -248,6 +253,9 @@ class ConcertServer:
         self.monitor_thread = MonitorThread(self)
         self.monitor_thread.start()
 
+        self.notifier_thread = NotifierThread(self)
+        self.notifier_thread.start()
+
         self.listener_thread = ListenerThread(self)
         self.listener_thread.start()
 
@@ -277,6 +285,8 @@ class ConcertServer:
 
         if self.monitor_thread and self.monitor_thread.is_alive():
             self.monitor_thread.join(timeout=2)
+
+        self.notification_manager.cleanup()
 
         with self.active_threads_lock:
             for t in self.active_threads:

@@ -50,3 +50,4 @@ CAT_REMOTE        = "#e66100"   # orange_4 — other users' actions
 CAT_ERROR         = "#e01b24"   # red_3 — protocol errors
 CAT_SERVER        = "#77767b"   # dark_1 — server lifecycle
 CAT_EXPIRE        = "#986a44"   # Adwaita brown_3 — TTL expiration
+CAT_NOTIFICATION  = "#9141ac"   # purple_3 — push notifications
