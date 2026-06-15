@@ -133,17 +133,18 @@ else:
 "
 ```
 
-**Opción B — Ejecutable (sin Python):** Reparte un `.exe` a tus compañeros.
+**Opción B — Ejecutable con GUI completa (sin Python):** Tus compañeros abren el `.exe`, escriben tu IP y usan el mapa de asientos completo.
 
-```bash
-# En tu máquina Windows, construís el ejecutable:
-pip install pyinstaller
-pyinstaller --onefile --console --name comprar scripts/simple_client.py
+```powershell
+# En tu máquina Windows, abrí PowerShell como Admin:
+py -3 -m venv .venv-build
+.venv-build\Scripts\python.exe -m pip install --upgrade pip pyinstaller pyside6
+.venv-build\Scripts\python.exe -m PyInstaller --noconfirm --clean --onefile --windowed --name "ConcertSync-GUI" --add-data "frontend_pyside6/resources;frontend_pyside6/resources" scripts/pyside6_launcher.py
 
-# Copiás dist/comprar.exe a un USB y lo pasás
+# Copiás dist/ConcertSync-GUI.exe a un USB
 ```
 
-Tus compañeros ejecutan `comprar.exe 192.168.1.42` (tu IP) desde su carpeta.
+Tus compañeros solo hacen doble clic en `ConcertSync-GUI.exe`, ponen tu IP en el campo "Host" y clickean **Connect**. Ven el mapa en vivo, reservan, confirman, ven notificaciones — todo igual que si tuvieran el proyecto instalado.
 
 > ⚠️ **Importante para Windows:**
 > 1. **Firewall** — Al iniciar el servidor, Windows preguntará si permitís conexiones entrantes en el puerto 9999. Aceptá.
