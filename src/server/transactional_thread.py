@@ -111,6 +111,26 @@ class TransactionalThread(threading.Thread):
         section_set = set(sections)
         return [section for section in Section if section in section_set]
 
+    def _notify_availability_if_needed(self, section):
+        section_name = section.name
+        available_count = 0
+        for row in self.server.seat_matrix.seats[section]:
+            for seat in row:
+                if seat == SeatState.AVAILABLE:
+                    available_count += 1
+        was_full = self.server.notification_manager.is_section_full(section_name)
+        self.server.notification_manager.set_section_full(section_name, available_count == 0)
+        if was_full and available_count > 0:
+            message = f"[NOTIFICACIÓN]\nHay nuevos asientos disponibles en la zona {section_name}."
+            self.server.notification_manager.append_to_all(
+                NotificationType.AVAILABILITY,
+                message,
+            )
+            self.server.global_log.append(
+                "NOTIFICATION",
+                f"Section:{section_name} availability notification (was full, now {available_count} available)",
+            )
+
     def handle_reserve(self, request):
         # Validate RESERVE-specific payload
         is_valid, error_msg = validate_reserve_payload(request)
@@ -463,6 +483,10 @@ class TransactionalThread(threading.Thread):
                 for section, count in released_counts.items():
                     if count > 0:
                         self.server.semaphore_mgr.release_multiple(section, count)
+
+                for section in ordered_sections:
+                    if released_counts[section] > 0:
+                        self._notify_availability_if_needed(section)
 
             self.server.global_log.append(
                 "CANCEL",
