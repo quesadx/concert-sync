@@ -28,8 +28,6 @@ MANIFEST
 tickets/
 
 # PyInstaller
-#  Spec files were previously tracked; now ignored as build artifacts.
-*.spec
 *.manifest
 
 # Installer logs

@@ -56,7 +56,7 @@ def test_query_seat_map_reflects_reserve_and_confirm(concert_server_instance):
 
     client.confirm(tx_id)
     seat_map_after_confirm = client.query_seat_map()["seat_map"]
-    assert seat_map_after_confirm["VIP"][0][0] == "SOLD"
+    assert seat_map_after_confirm["VIP"][0][0] == "OWN_SOLD"
 
 
 def test_query_seat_map_reflects_cancel(concert_server_instance):

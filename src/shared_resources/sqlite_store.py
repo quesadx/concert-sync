@@ -96,6 +96,14 @@ class SqliteStore:
             PRIMARY KEY (user_id, section, row, col),
             FOREIGN KEY (user_id) REFERENCES sessions(user_id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS purchased_seats (
+            section TEXT NOT NULL,
+            row INTEGER NOT NULL,
+            col INTEGER NOT NULL,
+            user_id TEXT NOT NULL,
+            PRIMARY KEY (section, row, col)
+        );
         """
         with self._lock:
             conn = None
@@ -324,6 +332,68 @@ class SqliteStore:
                 conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
             except sqlite3.Error as exc:
                 self._log_error(f"Failed to delete session {user_id}: {exc}")
+            finally:
+                if conn:
+                    conn.close()
+
+    # ════════════════════════════════════════════════════════════════════════
+    # Purchased seat tracking (for OWN_SOLD display across reconnects)
+    # ════════════════════════════════════════════════════════════════════════
+
+    def save_purchased_by(
+        self, section: str, row: int, col: int, user_id: str
+    ) -> None:
+        """Record which user purchased a seat so the client can show OWN_SOLD.
+
+        Args:
+            section: Section name (VIP, PREFERENTIAL, GENERAL).
+            row: Row index.
+            col: Column index.
+            user_id: The user who confirmed/purchased the seat.
+        """
+        with self._lock:
+            conn = None
+            try:
+                conn = sqlite3.connect(str(self.db_path))
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute(
+                    "INSERT OR REPLACE INTO purchased_seats "
+                    "(section, row, col, user_id) VALUES (?, ?, ?, ?)",
+                    (section, row, col, user_id),
+                )
+                conn.commit()
+            except sqlite3.Error as exc:
+                self._log_error(f"Failed to save purchased_by: {exc}")
+            finally:
+                if conn:
+                    conn.close()
+
+    def load_purchased_seats_for_user(
+        self, user_id: str
+    ) -> set[tuple[str, int, int]]:
+        """Return coordinates of all seats purchased by a given user.
+
+        Args:
+            user_id: The user identifier.
+
+        Returns:
+            Set of (section_name, row, col) tuples.
+        """
+        with self._lock:
+            conn = None
+            try:
+                conn = sqlite3.connect(str(self.db_path))
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    "SELECT section, row, col FROM purchased_seats "
+                    "WHERE user_id = ?",
+                    (user_id,),
+                ).fetchall()
+                return {(r["section"], r["row"], r["col"]) for r in rows}
+            except sqlite3.Error as exc:
+                self._log_error(f"Failed to load purchased seats: {exc}")
+                return set()
             finally:
                 if conn:
                     conn.close()

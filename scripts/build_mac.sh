@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
 # ============================================================================
 #  ConcertSync — macOS ARM Build Script
-#  Builds a standalone ConcertSync Mach-O executable with PyInstaller.
+#  Builds standalone Mach-O executables with PyInstaller.
 #
 #  How to use:
 #    1. git pull  (get latest code from repo)
 #    2. Run from Terminal:
-#         bash scripts/build_mac.sh
+#         bash scripts/build_mac.sh             # build both
+#         bash scripts/build_mac.sh server      # server only
+#         bash scripts/build_mac.sh client      # client only
 #
-#  Output: dist/ConcertSync
+#  Outputs:
+#    dist/ConcertSyncServer    — server CLI executable
+#    dist/ConcertSync          — client GUI executable
 #
 #  The end-user needs nothing — no Python, no PySide6, no dependencies.
 # ============================================================================
@@ -17,11 +21,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+TARGET="${1:-both}"
+
 echo "========================================"
 echo " ConcertSync — macOS ARM Build"
 echo "========================================"
 echo ""
-echo "Root: $ROOT"
+echo "Root:    $ROOT"
+echo "Target:  $TARGET"
+echo "Arch:    $(uname -m)"
+echo ""
 
 # ── Step 1: Check for Python ────────────────────────────────────────────────
 if ! command -v python3 &>/dev/null; then
@@ -38,7 +47,7 @@ echo "[OK] Python $PYTHON_VERSION found."
 ARCH=$(uname -m)
 if [ "$ARCH" != "arm64" ]; then
     echo "[WARNING] This machine is $ARCH, not arm64."
-    echo "The .spec targets arm64 — cross-compilation may not work."
+    echo "The .spec files target arm64 — cross-compilation may not work."
     echo "Build on an Apple Silicon Mac for native arm64 output."
     echo ""
     read -rp "Continue anyway? [y/N] " REPLY
@@ -57,65 +66,123 @@ echo "[BUILD] Activating venv and upgrading pip..."
 .venv-build-mac/bin/python -m pip install --upgrade pip > /dev/null 2>&1
 
 # ── Step 3: Install build dependencies ──────────────────────────────────────
-echo "[BUILD] Installing PyInstaller and PySide6..."
-.venv-build-mac/bin/python -m pip install pyinstaller 'pyside6>=6.8'
+echo "[BUILD] Installing PyInstaller..."
+.venv-build-mac/bin/python -m pip install pyinstaller
 
 if [ $? -ne 0 ]; then
     echo "[ERROR] pip install failed."
     exit 1
 fi
-echo "[OK] Dependencies installed."
 
-# ── Step 4: Build executable ────────────────────────────────────────────────
-echo "[BUILD] Running PyInstaller..."
-.venv-build-mac/bin/python -m PyInstaller concert_sync_mac.spec --noconfirm --clean
-
-if [ $? -ne 0 ]; then
-    echo "[ERROR] PyInstaller build failed."
-    exit 1
-fi
-
-# ── Done ────────────────────────────────────────────────────────────────────
-EXE_PATH="$ROOT/dist/ConcertSync"
-if [ -f "$EXE_PATH" ]; then
-    SIZE=$(stat -f%z "$EXE_PATH" 2>/dev/null || stat -c%s "$EXE_PATH" 2>/dev/null)
-    # Human-readable size
-    if [ "$SIZE" -gt 1048576 ]; then
-        HR_SIZE="$(echo "scale=1; $SIZE / 1048576" | bc) MB"
-    elif [ "$SIZE" -gt 1024 ]; then
-        HR_SIZE="$(echo "scale=1; $SIZE / 1024" | bc) KB"
-    else
-        HR_SIZE="$SIZE bytes"
-    fi
-
+build_server() {
     echo ""
-    echo "========================================"
-    echo "  SUCCESS"
-    echo "========================================"
-    echo "  Output: $EXE_PATH"
-    echo "  Size:   $HR_SIZE ($SIZE bytes)"
-    echo ""
-    echo "  To distribute: copy dist/ConcertSync to any Apple Silicon Mac."
-    echo "  No Python or PySide6 required. Just double-click."
-    echo ""
-    echo "  First-run note: right-click > Open (Gatekeeper bypass)"
-    echo "  Or: xattr -cr dist/ConcertSync && ./dist/ConcertSync"
-    echo "========================================"
-else
-    # macOS onefile with console=False may produce .app bundle as well
-    APP_PATH="$ROOT/dist/ConcertSync.app"
-    if [ -d "$APP_PATH" ]; then
-        echo ""
-        echo "========================================"
-        echo "  SUCCESS"
-        echo "========================================"
-        echo "  Output: $APP_PATH"
-        echo ""
-        echo "  To distribute: copy dist/ConcertSync.app to any Apple Silicon Mac."
-        echo "  No Python or PySide6 required. Just double-click."
-        echo "========================================"
-    else
-        echo "[ERROR] Build output not found at $EXE_PATH or $APP_PATH"
+    echo "────────────────────────────────────────"
+    echo " Building ConcertSyncServer (CLI)"
+    echo "────────────────────────────────────────"
+    .venv-build-mac/bin/python -m PyInstaller concert_sync_server_mac.spec --noconfirm --clean
+
+    if [ $? -ne 0 ]; then
+        echo "[ERROR] Server build failed."
         exit 1
     fi
-fi
+
+    local exe_path="$ROOT/dist/ConcertSyncServer"
+    if [ -f "$exe_path" ]; then
+        local size
+        size=$(stat -f%z "$exe_path" 2>/dev/null || stat -c%s "$exe_path" 2>/dev/null)
+        local hr_size
+        if [ "$size" -gt 1048576 ]; then
+            hr_size="$(echo "scale=1; $size / 1048576" | bc 2>/dev/null || echo "$size") MB"
+        elif [ "$size" -gt 1024 ]; then
+            hr_size="$(echo "scale=1; $size / 1024" | bc 2>/dev/null || echo "$size") KB"
+        else
+            hr_size="$size bytes"
+        fi
+        echo "  [OK] dist/ConcertSyncServer — $hr_size"
+    else
+        echo "[ERROR] Server build output not found at $exe_path"
+        exit 1
+    fi
+}
+
+build_client() {
+    echo ""
+    echo "────────────────────────────────────────"
+    echo " Building ConcertSync (GUI)"
+    echo "────────────────────────────────────────"
+    .venv-build-mac/bin/python -m pip install 'pyside6>=6.8'
+
+    if [ $? -ne 0 ]; then
+        echo "[ERROR] PySide6 install failed."
+        exit 1
+    fi
+
+    .venv-build-mac/bin/python -m PyInstaller concert_sync_client_mac.spec --noconfirm --clean
+
+    if [ $? -ne 0 ]; then
+        echo "[ERROR] Client build failed."
+        exit 1
+    fi
+
+    local exe_path="$ROOT/dist/ConcertSync"
+    local app_path="$ROOT/dist/ConcertSync.app"
+    if [ -f "$exe_path" ]; then
+        local size
+        size=$(stat -f%z "$exe_path" 2>/dev/null || stat -c%s "$exe_path" 2>/dev/null)
+        local hr_size
+        if [ "$size" -gt 1048576 ]; then
+            hr_size="$(echo "scale=1; $size / 1048576" | bc 2>/dev/null || echo "$size") MB"
+        elif [ "$size" -gt 1024 ]; then
+            hr_size="$(echo "scale=1; $size / 1024" | bc 2>/dev/null || echo "$size") KB"
+        else
+            hr_size="$size bytes"
+        fi
+        echo "  [OK] dist/ConcertSync — $hr_size"
+    elif [ -d "$app_path" ]; then
+        echo "  [OK] dist/ConcertSync.app"
+    else
+        echo "[ERROR] Client build output not found at $exe_path or $app_path"
+        exit 1
+    fi
+}
+
+# ── Step 4: Build ───────────────────────────────────────────────────────────
+case "$TARGET" in
+    server)
+        build_server
+        ;;
+    client)
+        build_client
+        ;;
+    both)
+        build_server
+        build_client
+        ;;
+    *)
+        echo "Usage: $0 [server|client|both]"
+        exit 1
+        ;;
+esac
+
+# ── Done ────────────────────────────────────────────────────────────────────
+echo ""
+echo "========================================"
+echo "  SUCCESS"
+echo "========================================"
+echo ""
+echo "  Outputs:"
+for f in dist/ConcertSyncServer dist/ConcertSync dist/ConcertSync.app; do
+    if [ -f "$f" ]; then
+        echo "    $f"
+    elif [ -d "$f" ]; then
+        echo "    $f"
+    fi
+done
+echo ""
+echo "  Server usage:  ./dist/ConcertSyncServer --port 9999"
+echo "  Client usage:  double-click dist/ConcertSync"
+echo ""
+echo "  First-run note (Gatekeeper bypass):"
+echo "    xattr -cr dist/"
+echo ""
+echo "========================================"

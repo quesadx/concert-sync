@@ -299,6 +299,7 @@ class ConcertMainWindow(QMainWindow):
             ("#2563eb", "Yours"),
             ("#ea580c", "Reserved"),
             ("#dc2626", "Sold"),
+            ("#4338ca", "Purchased"),
             ("#9333ea", "Pending"),
         ]:
             swatch = QLabel("   ")
@@ -467,6 +468,7 @@ class ConcertMainWindow(QMainWindow):
 
         # Clear state from any previous user session to prevent stale OWN_RESERVED highlights
         self.own_reserved_coords.clear()
+        self.own_sold_coords.clear()
         self.sessions.clear()
         self._click_inflight.clear()
 
@@ -520,6 +522,7 @@ class ConcertMainWindow(QMainWindow):
         self.sessions.clear()
         self._click_inflight.clear()
         self.own_reserved_coords.clear()
+        self.own_sold_coords.clear()
         self.section_snapshot = {
             "VIP": {"available": 0, "reserved": 0, "sold": 0},
             "PREFERENTIAL": {"available": 0, "reserved": 0, "sold": 0},
@@ -584,6 +587,10 @@ class ConcertMainWindow(QMainWindow):
         if self.client is None:
             return
         response = self.client.query_seat_map()
+        seat_map = response.get("seat_map", {})
+        if seat_map:
+            self.seat_map_snapshot = seat_map
+            self.own_sold_coords = self._extract_own_sold_from_seat_map(seat_map)
         user_session = response.get("user_session", None)
         self._sync_user_session(user_session)
 
@@ -628,6 +635,7 @@ class ConcertMainWindow(QMainWindow):
             return
         self.section_snapshot = sections
         self.seat_map_snapshot = seat_map_payload
+        self.own_sold_coords = self._extract_own_sold_from_seat_map(seat_map_payload)
         self._sync_user_session(user_session)
         self._toolbar_status.setText(
             f"Connected to {self.connected_host}:{self.connected_port}"
@@ -687,6 +695,18 @@ class ConcertMainWindow(QMainWindow):
             )
 
         self.tx_input.setText(session_id)
+
+    def _extract_own_sold_from_seat_map(
+        self, seat_map: dict
+    ) -> Set[tuple[str, int, int]]:
+        """Scan seat_map grid for OWN_SOLD cells and return their coordinates."""
+        own_sold: Set[tuple[str, int, int]] = set()
+        for section_name, rows in seat_map.items():
+            for row_idx, row in enumerate(rows):
+                for col_idx, cell in enumerate(row):
+                    if cell == "OWN_SOLD":
+                        own_sold.add((section_name, row_idx, col_idx))
+        return own_sold
 
     @Slot(str)
     def _on_poll_error(self, error_msg: str) -> None:
@@ -1165,6 +1185,14 @@ class ConcertMainWindow(QMainWindow):
         for s_name, r, c in self.own_reserved_coords:
             own_by_section[s_name].add((r, c))
 
+        sold_by_section: Dict[str, Set[tuple[int, int]]] = {
+            "VIP": set(),
+            "PREFERENTIAL": set(),
+            "GENERAL": set(),
+        }
+        for s_name, r, c in self.own_sold_coords:
+            sold_by_section[s_name].add((r, c))
+
         # Build TTL overlay dict per section from active sessions
         ttl_by_section: Dict[str, Dict[tuple[int, int], int]] = {
             "VIP": {},
@@ -1189,6 +1217,7 @@ class ConcertMainWindow(QMainWindow):
                 pending_by_section.get(section_name, set()),
                 own_by_section.get(section_name, set()),
                 own_cell_ttl=ttl_by_section.get(section_name, {}),
+                own_sold_coords=sold_by_section.get(section_name, set()),
             )
 
     def _set_ttl_display(self, session: object | None) -> None:

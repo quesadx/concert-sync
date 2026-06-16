@@ -34,7 +34,8 @@ BORDER_FOCUS    = "#2563eb"   # Blue-600 (accent for focused elements)
 SEAT_AVAILABLE  = "#16a34a"   # Green-600
 SEAT_OWN        = "#2563eb"   # Blue-600 — YOUR reservation
 SEAT_RESERVED   = "#ea580c"   # Orange-600 — reserved by another user
-SEAT_SOLD       = "#dc2626"   # Red-600 — confirmed/sold
+SEAT_SOLD       = "#dc2626"   # Red-600 — confirmed/sold by another user
+SEAT_OWN_SOLD   = "#4338ca"   # Indigo-600 — YOUR purchased seat
 SEAT_PENDING    = "#9333ea"   # Purple-600 — local pre-reserve
 
 # ── Seat Map Cell Borders ──────────────────────────────────────────────
@@ -42,6 +43,7 @@ BORDER_AVAILABLE  = "1px solid #16a34a"
 BORDER_OWN        = "2px solid #2563eb"
 BORDER_RESERVED   = "1px solid #ea580c"
 BORDER_SOLD       = "1px solid #dc2626"
+BORDER_OWN_SOLD   = "1px solid #4338ca"
 BORDER_PENDING    = "2px dashed #9333ea"
 
 # ── Event Log Category Colors ──────────────────────────────────────────
