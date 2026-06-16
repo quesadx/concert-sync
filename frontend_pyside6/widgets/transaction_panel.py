@@ -80,23 +80,23 @@ class TransactionPanel(QWidget):
         """
         if session is None or session.state != "ACTIVE":
             self.ttl_label.setText("No active reservations")
-            self.ttl_label.setStyleSheet("color: #77767b;")
+            self.ttl_label.setStyleSheet("color: #86868b;")
             return
 
         remaining = session.ttl_remaining()
         if remaining <= 0:
             self.ttl_label.setText("Reservation expired")
-            self.ttl_label.setStyleSheet("color: #e01b24;")
+            self.ttl_label.setStyleSheet("color: #dc2626;")
             return
 
         mins, secs = divmod(remaining, 60)
         self.ttl_label.setText(f"TTL: {mins:02d}:{secs:02d} — {session.transaction_id[:8]}")
         if remaining <= 30:
-            color = "#e01b24"  # Red when urgent
+            color = "#dc2626"
         elif remaining <= 120:
-            color = "#e66100"  # Orange when getting close
+            color = "#ea580c"
         else:
-            color = "#2ec27e"  # Green when plenty of time
+            color = "#16a34a"
         self.ttl_label.setStyleSheet(f"color: {color};")
 
     def update_sessions(self, sessions: dict) -> None:

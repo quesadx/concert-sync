@@ -152,8 +152,37 @@ class ConcertServer:
                     f"(user={session.user_id}, seats={len(session.seats)})",
                 )
             else:
-                self.session_manager.set_session(session)
-                restored_count += 1
+                # Validate that this session's seats are actually RESERVED
+                # in the loaded matrix. After an unclean shutdown or
+                # stop()-order inconsistency, the DB may contain ACTIVE
+                # sessions whose seats were released back to AVAILABLE.
+                validated_seats = []
+                for sec, row, col in list(session.seats):
+                    if self.seat_matrix.seats[sec][row][col] == SeatState.RESERVED:
+                        validated_seats.append((sec, row, col))
+
+                phantom_count = len(session.seats) - len(validated_seats)
+                if phantom_count > 0:
+                    session.seats = validated_seats
+                    self.global_log.append(
+                        "CLEANUP",
+                        f"Removed {phantom_count} phantom seat(s) from "
+                        f"session {session.session_id} "
+                        f"(user={session.user_id})",
+                    )
+
+                if not session.seats:
+                    self.store.delete_session(session.user_id)
+                    expired_count += 1
+                    self.global_log.append(
+                        "EXPIRE",
+                        f"Startup: expired phantom session "
+                        f"{session.session_id} "
+                        f"(user={session.user_id})",
+                    )
+                else:
+                    self.session_manager.set_session(session)
+                    restored_count += 1
 
         if restored_count > 0:
             self.global_log.append(
@@ -332,10 +361,14 @@ class ConcertServer:
 
         time.sleep(0.5)
 
+        # Persist consistent state BEFORE releasing in-memory:
+        # 1. Save seat matrix (seats are still RESERVED)
+        # 2. Save sessions (still ACTIVE with seat lists)
+        # This ensures the DB snapshot is self-consistent on restart.
+        self.store.save_all_seats(self.seat_matrix)
         self.store.save_all_sessions(self.session_manager)
         self._release_all_sessions()
 
-        self.store.save_all_seats(self.seat_matrix)
         self.store.close()
 
         if self.listener_thread and self.listener_thread.is_alive():

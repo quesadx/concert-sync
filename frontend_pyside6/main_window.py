@@ -193,25 +193,28 @@ class ConcertMainWindow(QMainWindow):
         switcher_label.setObjectName("section-label")
         left_panel.addWidget(switcher_label)
 
-        switcher_layout = QHBoxLayout()
-        switcher_layout.setSpacing(6)
+        switcher_container = QWidget()
+        switcher_container.setObjectName("section-switcher")
+        switcher_layout = QHBoxLayout(switcher_container)
+        switcher_layout.setSpacing(0)
+        switcher_layout.setContentsMargins(0, 0, 0, 0)
         self._section_buttons: Dict[str, QPushButton] = {}
         section_meta = {
-            "VIP": ("VIP", "#3584e4"),
-            "PREFERENTIAL": ("Preferential", "#62a0ea"),
-            "GENERAL": ("General", "#9141ac"),
+            "VIP": ("VIP", "#2563eb"),
+            "PREFERENTIAL": ("Preferential", "#3b82f6"),
+            "GENERAL": ("General", "#9333ea"),
         }
         for sec_name, (label, accent) in section_meta.items():
             btn = QPushButton(label)
             btn.setCheckable(True)
             btn.setStyleSheet(
                 f"QPushButton:checked {{ background-color: {accent}; "
-                f"border-color: {accent}; }}"
+                f"border-color: {accent}; color: #ffffff; }}"
             )
             btn.clicked.connect(lambda checked, s=sec_name: self._switch_section(s))
             switcher_layout.addWidget(btn)
             self._section_buttons[sec_name] = btn
-        left_panel.addLayout(switcher_layout)
+        left_panel.addWidget(switcher_container)
 
         left_panel.addSpacing(8)
 
@@ -235,18 +238,24 @@ class ConcertMainWindow(QMainWindow):
         tx_layout.addWidget(self.tx_input)
         left_panel.addLayout(tx_layout)
 
-        btn_row = QHBoxLayout()
+        action_container = QWidget()
+        action_container.setObjectName("action-btn-group")
+        btn_row = QHBoxLayout(action_container)
+        btn_row.setSpacing(0)
+        btn_row.setContentsMargins(0, 0, 0, 0)
         self.confirm_btn = QPushButton("Confirm")
+        self.confirm_btn.setObjectName("action-confirm")
         self.confirm_btn.clicked.connect(
             lambda: self._on_confirm(self.tx_input.text().strip())
         )
         btn_row.addWidget(self.confirm_btn)
         self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.setObjectName("action-cancel")
         self.cancel_btn.clicked.connect(
             lambda: self._on_cancel(self.tx_input.text().strip())
         )
         btn_row.addWidget(self.cancel_btn)
-        left_panel.addLayout(btn_row)
+        left_panel.addWidget(action_container)
 
         left_panel.addSpacing(8)
 
@@ -286,11 +295,11 @@ class ConcertMainWindow(QMainWindow):
         legend_layout = QHBoxLayout()
         legend_layout.setSpacing(8)
         for color, text in [
-            ("#66bb6a", "Available"),
-            ("#29b6f6", "Yours"),
-            ("#ffa726", "Reserved"),
-            ("#ef5350", "Sold"),
-            ("#ab47bc", "Pending"),
+            ("#16a34a", "Available"),
+            ("#2563eb", "Yours"),
+            ("#ea580c", "Reserved"),
+            ("#dc2626", "Sold"),
+            ("#9333ea", "Pending"),
         ]:
             swatch = QLabel("   ")
             swatch.setStyleSheet(f"background-color: {color};")
@@ -1186,20 +1195,20 @@ class ConcertMainWindow(QMainWindow):
         """Update the prominent TTL countdown label."""
         if session is None or session.state != "ACTIVE":
             self._ttl_display.setText("No active reservation")
-            self._ttl_display.setStyleSheet("color: #77767b;")
+            self._ttl_display.setStyleSheet("color: #86868b;")
             return
         remaining = session.ttl_remaining()
         if remaining <= 0:
             self._ttl_display.setText("Reservation expired")
-            self._ttl_display.setStyleSheet("color: #e01b24;")
+            self._ttl_display.setStyleSheet("color: #dc2626;")
             return
         mins, secs = divmod(remaining, 60)
         if remaining <= 30:
-            color = "#e01b24"
+            color = "#dc2626"
         elif remaining <= 120:
-            color = "#e66100"
+            color = "#ea580c"
         else:
-            color = "#2ec27e"
+            color = "#16a34a"
         self._ttl_display.setText(f"{mins:02d}:{secs:02d}")
         self._ttl_display.setStyleSheet(f"color: {color};")
 

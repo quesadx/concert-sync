@@ -228,3 +228,6 @@ artifacts/
 
 # ConcertSync SQLite runtime database
 data/*.db
+
+# MacOS
+.DS_Store
