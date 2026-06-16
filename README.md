@@ -60,15 +60,43 @@ python -m frontend_pyside6 --mode dashboard
 
 ## Build Standalone Executables
 
-```bash
-# macOS ARM (Apple Silicon)
-bash scripts/build_mac.sh
+Build self-contained executables — no Python, no dependencies needed by the end user.
+The **server** and **client** are built separately with their own `.spec` and script.
 
-# Windows (PowerShell)
-powershell -ExecutionPolicy Bypass -File scripts/build_windows_exe.ps1
+### Client GUI (seat reservation app)
+
+| Platform | How | Output |
+|---|---|---|
+| **Windows** | Double-click `scripts/build.bat` | `dist/ConcertSync.exe` |
+| **macOS** | `bash scripts/build_mac.sh client` | `dist/ConcertSync` |
+| **Linux** | `make build-client-local` | `dist/ConcertSync` |
+
+### Server (CLI, runs on the host machine)
+
+| Platform | How | Output |
+|---|---|---|
+| **Windows** | Double-click `scripts/build_server.bat` | `dist/ConcertSyncServer.exe` |
+| **macOS** | `bash scripts/build_mac.sh server` | `dist/ConcertSyncServer` |
+| **Linux** | `make build-server-local` | `dist/ConcertSyncServer` |
+
+### Both at once
+
+| Platform | How |
+|---|---|
+| **Linux/macOS** | `make build-all` |
+| **Windows** | Run `build.bat` then `build_server.bat` (independent venvs) |
+
+### Usage after build
+
+```bash
+# Server (on the host machine)
+./dist/ConcertSyncServer --port 9999
+
+# Client (distribute to users — double-click or run)
+./dist/ConcertSync
 ```
 
-Output: `dist/ConcertSync` (macOS) or `dist/ConcertSync.exe` (Windows).
+> The server build is ~15 MB (no GUI libs). The client build is ~100 MB (bundles PySide6).
 
 ## Multi-User Demo
 

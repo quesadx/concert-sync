@@ -1,16 +1,17 @@
 @echo off
 REM ============================================================================
-REM  ConcertSync — Windows Build Script (Batch)
-REM  Builds a standalone ConcertSync.exe with PyInstaller.
+REM  ConcertSync — Windows Server Build Script (Batch)
+REM  Builds a standalone ConcertSyncServer.exe with PyInstaller.
 REM
 REM  How to use:
 REM    1. git pull  (get latest code from repo)
 REM    2. Double-click this file or run from cmd:
-REM         scripts\build.bat
+REM         scripts\build_server.bat
 REM
-REM  Output: dist\ConcertSync.exe
+REM  Output: dist\ConcertSyncServer.exe
 REM
-REM  The end-user needs nothing — no Python, no PySide6, no dependencies.
+REM  The end-user needs nothing — no Python, no dependencies.
+REM  Just run:  ConcertSyncServer.exe --port 9999
 REM ============================================================================
 setlocal enabledelayedexpansion
 
@@ -18,7 +19,7 @@ cd /d "%~dp0.."
 set ROOT=%CD%
 
 echo ========================================
-echo  ConcertSync — Windows Build
+echo  ConcertSync Server — Windows Build
 echo ========================================
 echo.
 echo Root: %ROOT%
@@ -38,9 +39,9 @@ echo [OK] Python launcher found.
 
 REM ── Step 2: Clean old build artifacts ───────────────────────────────────────
 echo [CLEAN] Removing old build caches and output...
-if exist "dist" (
-    echo   Removing dist\ ...
-    rmdir /s /q "dist"
+if exist "dist\ConcertSyncServer.exe" (
+    echo   Removing dist\ConcertSyncServer.exe ...
+    del /q "dist\ConcertSyncServer.exe" 2>nul
 )
 if exist "build" (
     echo   Removing build\ ...
@@ -53,27 +54,28 @@ echo [OK] Cleanup done.
 echo.
 
 REM ── Step 3: Create build venv ───────────────────────────────────────────────
-if not exist ".venv-build" (
+if not exist ".venv-build-server" (
     echo [BUILD] Creating build venv...
-    py -3 -m venv --clear .venv-build
+    py -3 -m venv --clear .venv-build-server
 )
 
 echo [BUILD] Upgrading pip...
-.venv-build\Scripts\python.exe -m pip install --upgrade pip
+.venv-build-server\Scripts\python.exe -m pip install --upgrade pip
 if %ERRORLEVEL% NEQ 0 (
     echo [WARN] pip upgrade failed, continuing anyway...
 )
 
 REM ── Step 4: Install build dependencies ──────────────────────────────────────
-echo [BUILD] Installing/upgrading PyInstaller and PySide6...
-.venv-build\Scripts\python.exe -m pip install --upgrade pyinstaller "pyside6>=6.8"
+REM Server only needs PyInstaller — no PySide6, no GUI deps.
+echo [BUILD] Installing/upgrading PyInstaller...
+.venv-build-server\Scripts\python.exe -m pip install --upgrade pyinstaller
 
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] pip install failed.
     pause
     exit /b 1
 )
-echo [OK] Dependencies installed.
+echo [OK] PyInstaller installed.
 echo.
 
 REM Show what we're building
@@ -83,7 +85,7 @@ echo.
 
 REM ── Step 5: Build .exe ──────────────────────────────────────────────────────
 echo [BUILD] Running PyInstaller...
-.venv-build\Scripts\python.exe -m PyInstaller concert_sync.spec --noconfirm --clean
+.venv-build-server\Scripts\python.exe -m PyInstaller concert_sync_server.spec --noconfirm --clean
 
 if %ERRORLEVEL% NEQ 0 (
     echo [ERROR] PyInstaller build failed.
@@ -95,12 +97,16 @@ echo.
 echo ========================================
 echo  SUCCESS
 echo ========================================
-echo  Output: %ROOT%\dist\ConcertSync.exe
+echo  Output: %ROOT%\dist\ConcertSyncServer.exe
 echo  Size:
-for %%I in ("%ROOT%\dist\ConcertSync.exe") do echo    %%~zI bytes
+for %%I in ("%ROOT%\dist\ConcertSyncServer.exe") do echo    %%~zI bytes
 echo.
-echo  To distribute: copy dist\ConcertSync.exe to any Windows machine.
-echo  No Python or PySide6 required.
+echo  To distribute: copy dist\ConcertSyncServer.exe to any Windows machine.
+echo  No Python required.
+echo.
+echo  Usage:
+echo    ConcertSyncServer.exe --port 9999
+echo    ConcertSyncServer.exe --host 0.0.0.0 --port 9999
 echo ========================================
 
 pause
