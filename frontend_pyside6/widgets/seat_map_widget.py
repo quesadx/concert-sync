@@ -33,6 +33,7 @@ class SeatMapWidget(QTableWidget):
     """
 
     seat_clicked = Signal(str, int, int, str)  # section, row, col, state
+    seat_double_clicked = Signal(str, int, int, str)  # section, row, col, state
 
     def __init__(self, section_name: str, rows: int, cols: int, cell_size: int = 26) -> None:
         """Initialize the seat map grid.
@@ -53,6 +54,7 @@ class SeatMapWidget(QTableWidget):
         self.horizontalHeader().setFont(header_font)
         self.verticalHeader().setFont(header_font)
         self.cellClicked.connect(self._on_cell_clicked)
+        self.cellDoubleClicked.connect(self._on_cell_double_clicked)
         self.setEditTriggers(QTableWidget.NoEditTriggers)
         self.setSelectionMode(QTableWidget.NoSelection)
         self.setFocusPolicy(Qt.NoFocus)
@@ -86,19 +88,35 @@ class SeatMapWidget(QTableWidget):
             state = item.data(Qt.UserRole)
             self.seat_clicked.emit(self.section_name, row, col, state)
 
+    def _on_cell_double_clicked(self, row: int, col: int) -> None:
+        """Handle a cell double-click by emitting the seat_double_clicked signal.
+
+        Reads server state from Qt.UserRole data and emits the signal
+        so the MainWindow can decide whether to deselect the seat.
+
+        Args:
+            row: Row index of the double-clicked cell.
+            col: Column index of the double-clicked cell.
+        """
+        item = self.item(row, col)
+        if item:
+            state = item.data(Qt.UserRole)
+            self.seat_double_clicked.emit(self.section_name, row, col, state)
+
     def update_grid(
         self,
         grid_data: list[list[str]],
         pending_coords: Set[tuple[int, int]],
         own_coords: Set[tuple[int, int]],
         own_cell_ttl: Dict[tuple[int, int], int] | None = None,
+        own_sold_coords: Set[tuple[int, int]] | None = None,
     ) -> None:
         """Full refresh of the grid from server data.
 
         Rebuilds every cell with the correct background color based on
-        server state, pending selections, and own reservations. Adds
-        row/col text labels inside cells, tooltips for every cell, and
-        TTL countdown text on owned cells.
+        server state, pending selections, own reservations, and own
+        purchased seats. Adds row/col text labels, tooltips, and TTL
+        countdown text on owned cells.
 
         Args:
             grid_data: 2D list of server state strings (AVAILABLE, RESERVED, SOLD).
@@ -107,11 +125,16 @@ class SeatMapWidget(QTableWidget):
             own_cell_ttl: Dict mapping (row, col) to remaining TTL seconds for
                 cells owned by this user (only for ACTIVE sessions). Defaults to
                 empty dict if None.
+            own_sold_coords: Set of (row, col) tuples purchased by this user.
+                Defaults to empty set if None.
         """
         if own_cell_ttl is None:
             own_cell_ttl = {}
+        if own_sold_coords is None:
+            own_sold_coords = set()
         self._pending_coords = pending_coords
         self._own_reserved_coords = own_coords
+        self._own_sold_coords = own_sold_coords
         # Scale font sizes proportionally to cell size for readability
         label_pt = max(7, self._cell_size // 4)
         ttl_pt = max(6, self._cell_size // 5)
@@ -143,8 +166,10 @@ class SeatMapWidget(QTableWidget):
                     else:
                         item.setText("Y")
                     item.setForeground(QBrush(Qt.white))
+                elif display_state == "OWN_SOLD":
+                    item.setText("\u2713")
+                    item.setForeground(QBrush(Qt.white))
                 elif display_state == "PENDING":
-                    # Small dot to show selection without clutter
                     item.setText("\u2022")
                     item.setForeground(QBrush(Qt.white))
                 else:
@@ -157,7 +182,11 @@ class SeatMapWidget(QTableWidget):
                 # Tooltip: clearly distinguish YOUR reservation vs others
                 if display_state == "OWN_RESERVED":
                     item.setToolTip(
-                        f"{self.section_name}({r},{c}) — YOUR reservation (expires in {own_cell_ttl.get((r, c), 0)}s)"
+                        f"{self.section_name}({r},{c}) — YOUR reservation (expires in {own_cell_ttl.get((r, c), 0)}s) — double-click to cancel"
+                    )
+                elif display_state == "OWN_SOLD":
+                    item.setToolTip(
+                        f"{self.section_name}({r},{c}) — YOUR purchased seat"
                     )
                 elif display_state == "RESERVED":
                     item.setToolTip(
@@ -182,6 +211,8 @@ class SeatMapWidget(QTableWidget):
             return "PENDING"
         if (row, col) in self._own_reserved_coords:
             return "OWN_RESERVED"
+        if (row, col) in self._own_sold_coords:
+            return "OWN_SOLD"
         if server_state == "OWN_RESERVED":
             return "OWN_RESERVED"
         return server_state

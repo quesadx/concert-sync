@@ -79,7 +79,7 @@ class TransactionalThread(threading.Thread):
             except Exception:
                 pass  # Socket already closed or unreachable
         finally:
-            if not getattr(self, '_socket_transferred', False):
+            if not getattr(self, "_socket_transferred", False):
                 try:
                     self.client_socket.close()
                 except Exception:
@@ -120,7 +120,9 @@ class TransactionalThread(threading.Thread):
                 if seat == SeatState.AVAILABLE:
                     available_count += 1
         was_full = self.server.notification_manager.is_section_full(section_name)
-        self.server.notification_manager.set_section_full(section_name, available_count == 0)
+        self.server.notification_manager.set_section_full(
+            section_name, available_count == 0
+        )
         if was_full and available_count > 0:
             message = f"[NOTIFICACIÓN]\nHay nuevos asientos disponibles en la zona {section_name}."
             self.server.notification_manager.append_to_all(
@@ -193,7 +195,9 @@ class TransactionalThread(threading.Thread):
                 f"Session:{session_id} Section:{section.name} Seat:[{row},{col}]",
             )
 
-            self.server.store.save_all_seats(self.server.seat_matrix)
+            with self.server.mutex_manager.sections(list(Section)):
+                self.server.store.save_all_seats(self.server.seat_matrix)
+                self.server.store.save_all_sessions(self.server.session_manager)
 
             return build_success_response(
                 transaction_id=session_id, ttl=RESERVATION_TTL
@@ -209,7 +213,9 @@ class TransactionalThread(threading.Thread):
 
                     with self.server.mutex_manager.sections([section]):
                         seats = self.server.seat_matrix.seats[section]
-                        valid_indices = 0 <= row < len(seats) and 0 <= col < len(seats[row])
+                        valid_indices = 0 <= row < len(seats) and 0 <= col < len(
+                            seats[row]
+                        )
                         if valid_indices and seats[row][col] == SeatState.RESERVED:
                             seats[row][col] = SeatState.AVAILABLE
                             if semaphore_acquired:
@@ -319,7 +325,9 @@ class TransactionalThread(threading.Thread):
             f"Session:{session_id} Seats:{seat_objects}",
         )
 
-        self.server.store.save_all_seats(self.server.seat_matrix)
+        with self.server.mutex_manager.sections(list(Section)):
+            self.server.store.save_all_seats(self.server.seat_matrix)
+            self.server.store.save_all_sessions(self.server.session_manager)
 
         return build_success_response(
             transaction_id=session_id,
@@ -398,21 +406,26 @@ class TransactionalThread(threading.Thread):
                                 f"Seat {section.name}({row},{col}) state is {seat_state.value}, expected RESERVED",
                             )
 
+                for section in ordered_sections:
+                    for row, col in seats_by_section[section]:
                         self.server.seat_matrix.seats[section][row][
                             col
                         ] = SeatState.SOLD
+                        self.server.store.save_purchased_by(
+                            section.name, row, col, current_session.user_id
+                        )
 
                 current_session.state = ReservationStatus.CONFIRMED
                 confirmed_user_id = current_session.user_id
                 self.server.session_manager.remove(confirmed_user_id)
 
+                self.server.store.save_all_seats(self.server.seat_matrix)
+                self.server.store.delete_session(confirmed_user_id)
+
             self.server.global_log.append(
                 "CONFIRM",
                 f"Session:{session_id} User:{confirmed_user_id} confirmed",
             )
-
-            self.server.store.save_all_seats(self.server.seat_matrix)
-            self.server.store.delete_session(confirmed_user_id)
 
             self.server.notification_manager.append(
                 confirmed_user_id,
@@ -427,7 +440,11 @@ class TransactionalThread(threading.Thread):
             # Start background ticket generation after successful CONFIRM
             ticket_id = self.server.notification_manager.generate_ticket_id()
             seat_list = [(r, c) for section, r, c in current_session.seats]
-            section_name = "+".join(s.name for s in ordered_sections) if ordered_sections else "UNKNOWN"
+            section_name = (
+                "+".join(s.name for s in ordered_sections)
+                if ordered_sections
+                else "UNKNOWN"
+            )
             ticket_thread = threading.Thread(
                 target=self.server.ticket_generator.generate_ticket,
                 args=(ticket_id, section_name, seat_list, session_id, time.time()),
@@ -487,6 +504,9 @@ class TransactionalThread(threading.Thread):
                                 ErrorCode.SEAT_NOT_AVAILABLE,
                                 f"Seat {section.name}({row},{col}) state is {seat_state.value}, expected RESERVED",
                             )
+
+                for section in ordered_sections:
+                    for row, col in seats_by_section[section]:
                         self.server.seat_matrix.seats[section][row][
                             col
                         ] = SeatState.AVAILABLE
@@ -504,13 +524,13 @@ class TransactionalThread(threading.Thread):
                     if released_counts[section] > 0:
                         self._notify_availability_if_needed(section)
 
+                self.server.store.save_all_seats(self.server.seat_matrix)
+                self.server.store.delete_session(cancelled_user_id)
+
             self.server.global_log.append(
                 "CANCEL",
                 f"Session:{session_id} User:{cancelled_user_id} cancelled sections_released:{len(released_counts)}",
             )
-
-            self.server.store.save_all_seats(self.server.seat_matrix)
-            self.server.store.delete_session(cancelled_user_id)
 
             return build_success_response(transaction_id=session_id)
 
@@ -566,16 +586,25 @@ class TransactionalThread(threading.Thread):
 
             user_session_data = None
             if session is not None and session.state == ReservationStatus.ACTIVE:
-                seat_list = [
-                    {"section": s.name, "row": r, "col": c}
-                    for s, r, c in session.seats
-                ]
+                seen: set[tuple[str, int, int]] = set()
+                seat_list = []
+                for s, r, c in session.seats:
+                    key = (s.name, r, c)
+                    if key not in seen:
+                        seen.add(key)
+                        seat_list.append({"section": s.name, "row": r, "col": c})
                 user_session_data = {
                     "session_id": session.session_id,
                     "seats": seat_list,
                     "ttl_secs": session.ttl_secs,
                     "last_activity": session.last_activity,
                 }
+
+            my_purchased: set[tuple[str, int, int]] = set()
+            if requesting_user_id:
+                my_purchased = self.server.store.load_purchased_seats_for_user(
+                    requesting_user_id
+                )
 
             with self.server.mutex_manager.sections(list(Section)):
                 for section in Section:
@@ -589,12 +618,19 @@ class TransactionalThread(threading.Thread):
                                     serialized_row.append("OWN_RESERVED")
                                 else:
                                     serialized_row.append(seat.value)
+                            elif (
+                                seat == SeatState.SOLD
+                                and (section.name, row_idx, col_idx) in my_purchased
+                            ):
+                                serialized_row.append("OWN_SOLD")
                             else:
                                 serialized_row.append(seat.value)
                         serialized_rows.append(serialized_row)
                     seat_map[section.name] = serialized_rows
 
-            return build_success_response(seat_map=seat_map, user_session=user_session_data)
+            return build_success_response(
+                seat_map=seat_map, user_session=user_session_data
+            )
 
         except Exception as e:
             self.server.global_log.append("ERROR", f"QUERY_SEAT_MAP failed: {str(e)}")
@@ -626,9 +662,7 @@ class TransactionalThread(threading.Thread):
             self._socket_transferred = True
 
             # Send success response
-            response = build_success_response(
-                message="Subscribed to notifications"
-            )
+            response = build_success_response(message="Subscribed to notifications")
             self.client_socket.send(json.dumps(response).encode())
         except Exception as e:
             self.server.global_log.append(

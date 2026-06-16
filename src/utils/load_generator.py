@@ -1,17 +1,18 @@
+"""Concurrent load generator for ConcertSync seat reservation system.
+
+Generates synthetic load by spawning concurrent clients that reserve, confirm,
+cancel, and batch-reserve seats across all three sections. Used both as a CLI
+tool (tests/load_generator.py) and as a library imported by the PySide6 GUI.
+"""
+
 import argparse
-import os
 import random
-import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional, Tuple
-
-_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _project_root not in sys.path:
-    sys.path.insert(0, _project_root)
 
 from src.client.concert_client import ConcertClient, ConcertClientError
 from src.utils.config import SECTION_CONFIG

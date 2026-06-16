@@ -60,15 +60,15 @@ def test_workers_module_structure():
 # ============================================================================
 
 
-def test_frontend_tui_still_exists():
-    """The original Textual frontend must NOT be removed.
+def test_frontend_tui_no_longer_exists():
+    """The original Textual frontend was removed in favor of PySide6.
 
-    Verifies that ``frontend_tui/__init__.py`` still exists on disk.
+    Verifies that ``frontend_tui/__init__.py`` no longer exists on disk.
     """
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     tui_init = os.path.join(project_root, "frontend_tui", "__init__.py")
-    assert os.path.exists(tui_init), (
-        "frontend_tui/__init__.py is missing — the Textual frontend MUST be preserved"
+    assert not os.path.exists(tui_init), (
+        "frontend_tui/ was DELIBERATELY removed — PySide6 is the only frontend"
     )
 
 

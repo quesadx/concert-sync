@@ -13,27 +13,26 @@ import frontend_pyside6.resources.gnome_palette as palette
 # ── Display state identifiers ─────────────────────────────────────────────────
 # Subset is server-side (AVAILABLE, RESERVED, SOLD); others are client-side
 # overlays (OWN_RESERVED for "my" reservations, PENDING for pre-reserve selection).
-VISUAL_STATES = ("AVAILABLE", "OWN_RESERVED", "RESERVED", "SOLD", "PENDING")
+VISUAL_STATES = ("AVAILABLE", "OWN_RESERVED", "RESERVED", "SOLD", "OWN_SOLD", "PENDING")
 
 # ── Seat Map Cell Colors ──────────────────────────────────────────────────────
-# GNOME Adwaita palette with unmistakable distinction for each state.
-# Colors sourced from frontend_pyside6.resources.gnome_palette.
 SEAT_COLORS = {
     "AVAILABLE": QColor(palette.SEAT_AVAILABLE),    # Green — available for selection
     "OWN_RESERVED": QColor(palette.SEAT_OWN),        # Blue — YOUR reservation
     "RESERVED": QColor(palette.SEAT_RESERVED),      # Orange — reserved by another user
-    "SOLD": QColor(palette.SEAT_SOLD),              # Red — confirmed / permanently sold
+    "SOLD": QColor(palette.SEAT_SOLD),              # Red — sold to another user
+    "OWN_SOLD": QColor(palette.SEAT_OWN_SOLD),      # Indigo — YOUR purchased seat
     "PENDING": QColor(palette.SEAT_PENDING),        # Purple — locally selected, not yet reserved
 }
 
 # ── Seat Map Cell Border Styles ───────────────────────────────────────────────
-# CSS-style border declarations for visual distinction (applied in seat_map_widget).
 SEAT_BORDERS = {
     "AVAILABLE": palette.BORDER_AVAILABLE,
-    "OWN_RESERVED": palette.BORDER_OWN,         # Bold blue border for YOUR seats
+    "OWN_RESERVED": palette.BORDER_OWN,
     "RESERVED": palette.BORDER_RESERVED,
     "SOLD": palette.BORDER_SOLD,
-    "PENDING": palette.BORDER_PENDING,          # Dashed blue border for pending
+    "OWN_SOLD": palette.BORDER_OWN_SOLD,
+    "PENDING": palette.BORDER_PENDING,
 }
 
 # ── Event Log Category Colors ─────────────────────────────────────────────────

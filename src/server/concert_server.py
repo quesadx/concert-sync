@@ -19,7 +19,7 @@ from src.utils.ticket_generator import TicketGenerator
 
 
 class ConcertServer:
-    def __init__(self, host="localhost", port=SERVER_PORT):
+    def __init__(self, host="0.0.0.0", port=SERVER_PORT):
         self.host = host
         self.port = port
         self.seat_matrix = SeatMatrix()
@@ -28,7 +28,7 @@ class ConcertServer:
         self.global_log = GlobalLog()
         self.mutex_manager = MutexManager(self.seat_matrix, self.reservation_table)
         self.session_manager = SessionManager()
-        self.store = SqliteStore()
+        self.store = SqliteStore(global_log=self.global_log)
         self.notification_manager = NotificationManager(self.global_log)
         self.ticket_generator = TicketGenerator(self.global_log)
         self.notifier_thread = None
@@ -41,6 +41,47 @@ class ConcertServer:
         self.listener_thread = None
         self.active_threads: list[threading.Thread] = []
         self.active_threads_lock = threading.Lock()
+
+    def _release_orphaned_reserved_seats(self):
+        """Release RESERVED seats with no active session.
+
+        After loading persisted state, any seat still in RESERVED state that
+        is NOT referenced by any active session is an orphan — the reserving
+        session was lost (e.g., server crash between RESERVE and CONFIRM).
+        These seats are released back to AVAILABLE and semaphore slots freed.
+        """
+        total_released = 0
+        released_by_section = defaultdict(int)
+
+        for section in Section:
+            mutex = self.seat_matrix.mutex_sections[section]
+            with mutex:
+                seats_grid = self.seat_matrix.seats[section]
+                for row_idx, row in enumerate(seats_grid):
+                    for col_idx, seat in enumerate(row):
+                        if seat != SeatState.RESERVED:
+                            continue
+                        # Check if this seat belongs to any active session
+                        has_owner = any(
+                            (section, row_idx, col_idx) in s.seats
+                            for s in self.session_manager.get_all_sessions()
+                            if s.state == ReservationStatus.ACTIVE
+                        )
+                        if not has_owner:
+                            seats_grid[row_idx][col_idx] = SeatState.AVAILABLE
+                            released_by_section[section] += 1
+                            total_released += 1
+
+        for section, count in released_by_section.items():
+            if count > 0:
+                self.semaphore_mgr.release_multiple(section, count)
+
+        if total_released > 0:
+            self.global_log.append(
+                "CLEANUP",
+                f"Released {total_released} orphaned RESERVED seat(s): "
+                f"{dict(released_by_section)}",
+            )
 
     def _load_persisted_state(self):
         """Restore server state from SQLite on startup.
@@ -111,8 +152,37 @@ class ConcertServer:
                     f"(user={session.user_id}, seats={len(session.seats)})",
                 )
             else:
-                self.session_manager.set_session(session)
-                restored_count += 1
+                # Validate that this session's seats are actually RESERVED
+                # in the loaded matrix. After an unclean shutdown or
+                # stop()-order inconsistency, the DB may contain ACTIVE
+                # sessions whose seats were released back to AVAILABLE.
+                validated_seats = []
+                for sec, row, col in list(session.seats):
+                    if self.seat_matrix.seats[sec][row][col] == SeatState.RESERVED:
+                        validated_seats.append((sec, row, col))
+
+                phantom_count = len(session.seats) - len(validated_seats)
+                if phantom_count > 0:
+                    session.seats = validated_seats
+                    self.global_log.append(
+                        "CLEANUP",
+                        f"Removed {phantom_count} phantom seat(s) from "
+                        f"session {session.session_id} "
+                        f"(user={session.user_id})",
+                    )
+
+                if not session.seats:
+                    self.store.delete_session(session.user_id)
+                    expired_count += 1
+                    self.global_log.append(
+                        "EXPIRE",
+                        f"Startup: expired phantom session "
+                        f"{session.session_id} "
+                        f"(user={session.user_id})",
+                    )
+                else:
+                    self.session_manager.set_session(session)
+                    restored_count += 1
 
         if restored_count > 0:
             self.global_log.append(
@@ -164,8 +234,13 @@ class ConcertServer:
                             seat_section = section
 
                         with self.seat_matrix.mutex_sections[seat_section]:
-                            if self.seat_matrix.seats[seat_section][row][col] == SeatState.RESERVED:
-                                self.seat_matrix.seats[seat_section][row][col] = SeatState.AVAILABLE
+                            if (
+                                self.seat_matrix.seats[seat_section][row][col]
+                                == SeatState.RESERVED
+                            ):
+                                self.seat_matrix.seats[seat_section][row][
+                                    col
+                                ] = SeatState.AVAILABLE
                                 released_by_section[section] += 1
 
                     del self.reservation_table.reservations[tx_id]
@@ -200,7 +275,11 @@ class ConcertServer:
                     seats_by_section[section] = []
                 seats_by_section[section].append((row, col))
 
-            ordered_sections = [s for s in (Section.VIP, Section.PREFERENTIAL, Section.GENERAL) if s in seats_by_section]
+            ordered_sections = [
+                s
+                for s in (Section.VIP, Section.PREFERENTIAL, Section.GENERAL)
+                if s in seats_by_section
+            ]
 
             with self.mutex_manager.table_and_sections(ordered_sections):
                 current = self.session_manager.get_by_session_id(session.session_id)
@@ -210,8 +289,13 @@ class ConcertServer:
                 released_counts = defaultdict(int)
                 for section in ordered_sections:
                     for row, col in seats_by_section[section]:
-                        if self.seat_matrix.seats[section][row][col] == SeatState.RESERVED:
-                            self.seat_matrix.seats[section][row][col] = SeatState.AVAILABLE
+                        if (
+                            self.seat_matrix.seats[section][row][col]
+                            == SeatState.RESERVED
+                        ):
+                            self.seat_matrix.seats[section][row][
+                                col
+                            ] = SeatState.AVAILABLE
                             released_counts[section] += 1
 
                 self.session_manager.remove(session.user_id)
@@ -248,6 +332,8 @@ class ConcertServer:
 
         self._load_persisted_state()
 
+        self._release_orphaned_reserved_seats()
+
         self._cleanup_stale_reservations()
 
         self.monitor_thread = MonitorThread(self)
@@ -275,9 +361,14 @@ class ConcertServer:
 
         time.sleep(0.5)
 
+        # Persist consistent state BEFORE releasing in-memory:
+        # 1. Save seat matrix (seats are still RESERVED)
+        # 2. Save sessions (still ACTIVE with seat lists)
+        # This ensures the DB snapshot is self-consistent on restart.
+        self.store.save_all_seats(self.seat_matrix)
+        self.store.save_all_sessions(self.session_manager)
         self._release_all_sessions()
 
-        self.store.save_all_seats(self.seat_matrix)
         self.store.close()
 
         if self.listener_thread and self.listener_thread.is_alive():
