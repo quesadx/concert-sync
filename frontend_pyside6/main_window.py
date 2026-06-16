@@ -9,13 +9,13 @@ the seat map across all connected clients.
 from __future__ import annotations
 
 import socket
-import sys
+import threading
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 from uuid import uuid4
 
-from PySide6.QtCore import QProcess, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -53,6 +53,7 @@ from frontend_pyside6.widgets.seat_map_widget import SeatMapWidget
 from src.client.concert_client import ConcertClient, ConcertClientError
 from src.utils.config import SECTION_CONFIG
 from src.utils.enums import Section
+from src.utils.load_generator import LoadGenerator
 
 
 class ConcertMainWindow(QMainWindow):
@@ -83,6 +84,7 @@ class ConcertMainWindow(QMainWindow):
         dict, dict, object
     )  # sections, seat_map_payload, user_session
     _refresh_failed = Signal(str)  # error message
+    _load_test_results = Signal(dict)  # summary dict from LoadGenerator
 
     def __init__(self) -> None:
         """Initialize the main window, state, layout, and polling timer."""
@@ -115,7 +117,6 @@ class ConcertMainWindow(QMainWindow):
         self.own_sold_coords: Set[tuple[str, int, int]] = set()
         self.server_disconnected: bool = False
         self._closing: bool = False
-        self._load_process: Optional[QProcess] = None
 
         # ── Log buffer for replaying events into the log dialog ────────────
         self._log_buffer: list[tuple[str, str]] = []
@@ -337,6 +338,7 @@ class ConcertMainWindow(QMainWindow):
         # ── Signal-slot wiring ────────────────────────────────────────────
         self.connection_panel.connect_requested.connect(self._connect_client)
         self.connection_panel.disconnect_requested.connect(self._disconnect_client)
+        self._load_test_results.connect(self._on_load_test_results)
 
         # Default to VIP section
         self._switch_section("VIP")
@@ -368,7 +370,7 @@ class ConcertMainWindow(QMainWindow):
     # ════════════════════════════════════════════════════════════════════════
 
     def _on_load_test_clicked(self) -> None:
-        """Show configuration dialog and start load_generator.py as a subprocess."""
+        """Show configuration dialog and run LoadGenerator in a background thread."""
         if self.client is None:
             self.status_bar.showMessage("Connect to server first to run load test")
             return
@@ -391,45 +393,46 @@ class ConcertMainWindow(QMainWindow):
         )
         self._log_event("LOCAL", f"Load test started: {num_requests} requests")
 
-        script_path = str(Path(__file__).parent.parent / "tests" / "load_generator.py")
+        def _worker() -> None:
+            gen = LoadGenerator(
+                host=self.connected_host,
+                port=self.connected_port,
+                num_requests=num_requests,
+                conflicts=False,
+                delay=0,
+            )
+            gen.run()
+            self._load_test_results.emit(gen.summary())
 
-        self._load_process = QProcess(self)
-        self._load_process.setProcessChannelMode(QProcess.SeparateChannels)
-        self._load_process.finished.connect(self._on_load_test_finished)
-        self._load_process.start(sys.executable, [
-            script_path,
-            "--host", self.connected_host,
-            "--port", str(self.connected_port),
-            "--requests", str(num_requests),
-        ])
+        threading.Thread(target=_worker, daemon=True).start()
 
-    @Slot(int, QProcess.ExitStatus)
-    def _on_load_test_finished(self, exit_code: int, exit_status: QProcess.ExitStatus) -> None:
-        """Display load test results in a message box."""
+    @Slot(dict)
+    def _on_load_test_results(self, summary: dict) -> None:
+        """Display load test results in a formatted message box."""
         self.load_test_btn.setEnabled(True)
+        self.status_bar.showMessage("Load test complete")
+        self._log_event("LOCAL", "Load test finished")
 
-        output = bytes(self._load_process.readAllStandardOutput()).decode(
-            "utf-8", errors="replace"
-        )
-        err = bytes(self._load_process.readAllStandardError()).decode(
-            "utf-8", errors="replace"
-        )
-        full_output = output + "\n" + err if err else output
-
-        self.status_bar.showMessage(
-            f"Load test complete (exit code: {exit_code})"
-        )
-        self._log_event("LOCAL", f"Load test finished (exit code: {exit_code})")
+        lines = [
+            "═" * 50,
+            "  LOAD TEST RESULTS",
+            "═" * 50,
+            f"  Total requests:    {summary['total']}",
+            f"  Successful:        {summary['successes']}",
+            f"  Failed:            {summary['failures']}",
+            f"  Success rate:      {summary['success_rate']}",
+            f"  Avg duration:      {summary['avg_duration_ms']} ms",
+            f"  Max duration:      {summary['max_duration_ms']} ms",
+            f"  Min duration:      {summary['min_duration_ms']} ms",
+            "═" * 50,
+        ]
+        full_output = "\n".join(lines)
 
         msg = QMessageBox(self)
         msg.setWindowTitle("Load Test Results")
         msg.setDetailedText(full_output)
-        if exit_code == 0:
-            msg.setText("Load test completed successfully.")
-            msg.setIcon(QMessageBox.Information)
-        else:
-            msg.setText(f"Load test finished with exit code {exit_code}.")
-            msg.setIcon(QMessageBox.Warning)
+        msg.setText(f"Load test complete: {summary['successes']}/{summary['total']} successful ({summary['success_rate']})")
+        msg.setIcon(QMessageBox.Information)
         msg.exec()
 
     # ════════════════════════════════════════════════════════════════════════

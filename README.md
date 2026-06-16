@@ -87,6 +87,58 @@ python -m frontend_pyside6        # start GUI
 
 **Colors (GUI):** Green = Available, Blue = Yours, Orange = Reserved (other user), Red = Sold, Purple = Pending.
 
+## Build Standalone Executables
+
+Build a single `.exe` (Windows) or Mach-O binary (macOS ARM) that bundles Python, PySide6, and all dependencies. The end user needs **nothing** installed — just double-click.
+
+### Windows
+
+```cmd
+:: Double-click or run from cmd:
+scripts\build.bat
+
+:: Or in PowerShell:
+powershell -ExecutionPolicy Bypass -File scripts\build_windows_exe.ps1
+
+:: Output: dist\ConcertSync.exe
+```
+
+| File | Purpose |
+|---|---|
+| `scripts/build.bat` | Batch script — double-click to build |
+| `scripts/build_windows_exe.ps1` | PowerShell script — same, richer output |
+| `concert_sync.spec` | PyInstaller spec (used by both scripts) |
+
+### macOS ARM (Apple Silicon)
+
+```bash
+# From Terminal:
+bash scripts/build_mac.sh
+
+# Output: dist/ConcertSync (Mach-O binary)
+```
+
+| File | Purpose |
+|---|---|
+| `scripts/build_mac.sh` | Bash script — builds for Apple Silicon |
+| `concert_sync_mac.spec` | PyInstaller spec — `target_arch="arm64"` |
+
+**First launch bypass:** macOS Gatekeeper blocks unsigned binaries. Right-click the file → **Open**, or run:
+
+```bash
+xattr -cr dist/ConcertSync && ./dist/ConcertSync
+```
+
+### How It Works
+
+| Step | Windows | macOS |
+|---|---|---|
+| 1. Check Python | `py -3` (Python launcher) | `python3` |
+| 2. Create venv | `.venv-build/` | `.venv-build-mac/` |
+| 3. Install deps | `pip install pyinstaller pyside6` | same |
+| 4. Run PyInstaller | `concert_sync.spec` | `concert_sync_mac.spec` |
+| 5. Output | `dist/ConcertSync.exe` | `dist/ConcertSync` |
+
 ## Demo Multi-usuario (Defensa)
 
 Para que compañeros se conecten a **tu servidor** desde sus laptops en el mismo laboratorio:
@@ -136,15 +188,15 @@ else:
 **Opción B — Ejecutable con GUI completa (sin Python):** Tus compañeros abren el `.exe`, escriben tu IP y usan el mapa de asientos completo.
 
 ```powershell
-# En tu máquina Windows, abrí PowerShell como Admin:
-py -3 -m venv .venv-build
-.venv-build\Scripts\python.exe -m pip install --upgrade pip pyinstaller pyside6
-.venv-build\Scripts\python.exe -m PyInstaller --noconfirm --clean --onefile --windowed --name "ConcertSync-GUI" --add-data "frontend_pyside6/resources;frontend_pyside6/resources" scripts/pyside6_launcher.py
-
-# Copiás dist/ConcertSync-GUI.exe a un USB
+# En tu máquina Windows, ejecutá el script de build:
+scripts\build.bat
 ```
 
-Tus compañeros solo hacen doble clic en `ConcertSync-GUI.exe`, ponen tu IP en el campo "Host" y clickean **Connect**. Ven el mapa en vivo, reservan, confirman, ven notificaciones — todo igual que si tuvieran el proyecto instalado.
+El `.exe` queda en `dist/ConcertSync.exe`. Copialo a un USB.
+
+> Ver [Build Standalone Executables](#build-standalone-executables) para macOS ARM y más detalles.
+
+Tus compañeros solo hacen doble clic en `ConcertSync.exe`, ponen tu IP en el campo "Host" y clickean **Connect**. Ven el mapa en vivo, reservan, confirman, ven notificaciones — todo igual que si tuvieran el proyecto instalado.
 
 > ⚠️ **Importante para Windows:**
 > 1. **Firewall** — Al iniciar el servidor, Windows preguntará si permitís conexiones entrantes en el puerto 9999. Aceptá.
@@ -159,7 +211,7 @@ Las conexiones entrantes aparecen en los logs del servidor y en la GUI local. Ca
 
 ## Load Generator (Demo para profesora)
 
-Genera requests concurrentes para llenar asientos en vivo mientras se ve en la GUI.
+Genera requests concurrentes para llenar asientos en vivo mientras se ve en la GUI. También accesible desde el botón **Run Load Test** en la GUI.
 
 ```bash
 # Terminal 1: servidor
