@@ -1,80 +1,51 @@
 # ConcertSync
 
-TCP-based concurrent seat reservation system for a concert venue. Python server
-manages seat state across three sections (VIP, PREFERENTIAL, GENERAL) using
-threading, lock hierarchies, and semaphores. Two frontends available: a **PySide6
-desktop GUI** (recommended) and a **Textual terminal TUI** (legacy).
-
-Features **async push notifications** (TTL warnings, confirmations, expiry) and
-**automatic ticket generation** for every confirmed purchase.
+TCP-based concurrent seat reservation system. A Python server manages seat state
+across three sections (VIP, PREFERENTIAL, GENERAL) using threading, lock hierarchies,
+and semaphores. Includes a **PySide6 desktop GUI** with push notifications and
+automatic ticket generation.
 
 ## Quick Start
 
 ```bash
-# Option A: Server + GUI in one command
-python desktop_launcher.py
+# Terminal 1: start server
+python main.py
 
-# Option B: Server + TUI in one command (Nix)
-nix develop --command python desktop_launcher.py --mode tui
+# Terminal 2: start client GUI
+python -m frontend_pyside6 --mode client
 
-# Option C: Separate processes
-python main.py                          # Terminal 1: start server
-python -m frontend_pyside6              # Terminal 2: start GUI
+# Or: server + client in one command
+./scripts/run.sh both
 ```
+
+Port **9999** must be available.
 
 ## Requirements
 
 | Setup | Command |
 |---|---|
-| Nix (recommended) | `nix develop` — enters shell with all deps |
-| uv | `uv sync --group pyside6` |
+| Nix | `nix develop` |
+| uv | `uv sync --group dev` |
 | pip | `pip install pyside6` |
 
-Port **9999** must be available.
+## Usage
 
-## Running
+1. Start the server (`python main.py`).
+2. Launch the GUI (`python -m frontend_pyside6`).
+3. Enter a **User ID** (or leave blank for auto-generated).
+4. Click **Connect**.
+5. Click an **AVAILABLE** seat (green) to reserve it — it turns blue.
+6. **Confirm** to finalize (seat turns red, ticket generated in `tickets/`).
+7. **Cancel** to release the seat.
+8. Switch sections with the **VIP / Preferential / General** buttons.
+9. Reservations expire after **300 seconds** — TTL countdown shown in the panel.
 
-### PySide6 Desktop GUI
+### Dashboard Mode
+
+Monitor server state in real time:
 
 ```bash
-# Server + GUI (one process)
-python desktop_launcher.py
-
-# Server only
-python desktop_launcher.py --mode server
-
-# GUI only (connect to existing server)
-python desktop_launcher.py --mode client
-python -m frontend_pyside6 --mode client
-
-# Server monitoring dashboard
-python desktop_launcher.py --mode dashboard
 python -m frontend_pyside6 --mode dashboard
-```
-
-### Using the GUI
-
-1. Click **Connect** in the left panel (enter a user ID or leave blank for auto-generated).
-2. Click an **AVAILABLE** seat (green) to reserve it immediately — it turns blue.
-3. The **Transaction ID** auto-populates in the input field.
-4. Click **Confirm** to finalize the purchase (seat turns red — SOLD). A **ticket** file is generated in `tickets/`.
-5. Click **Cancel** to release the seat.
-6. Switch sections with the **VIP / Preferential / General** buttons.
-7. Click **Activity Center** to see event logs, active sessions, and stats.
-8. Reservations expire after **300 seconds** (5 min) — TTL countdown shown in the panel. You'll receive a **TTL warning notification** 30s before expiry.
-
-### Textual TUI (Legacy)
-
-```bash
-nix develop --command python -m frontend_tui
-```
-
-### Nix
-
-```bash
-nix develop
-python main.py                    # start server
-python -m frontend_pyside6        # start GUI
 ```
 
 ## Seats
@@ -85,229 +56,77 @@ python -m frontend_pyside6        # start GUI
 | PREFERENTIAL | 10 × 15 | 150 |
 | GENERAL | 20 × 20 | 400 |
 
-**Colors (GUI):** Green = Available, Blue = Yours, Orange = Reserved (other user), Red = Sold, Purple = Pending.
+**Colors:** Green = Available, Blue = Yours, Orange = Reserved, Red = Sold, Purple = Pending.
 
 ## Build Standalone Executables
 
-Build a single `.exe` (Windows) or Mach-O binary (macOS ARM) that bundles Python, PySide6, and all dependencies. The end user needs **nothing** installed — just double-click.
-
-### Windows
-
-```cmd
-:: Double-click or run from cmd:
-scripts\build.bat
-
-:: Or in PowerShell:
-powershell -ExecutionPolicy Bypass -File scripts\build_windows_exe.ps1
-
-:: Output: dist\ConcertSync.exe
-```
-
-| File | Purpose |
-|---|---|
-| `scripts/build.bat` | Batch script — double-click to build |
-| `scripts/build_windows_exe.ps1` | PowerShell script — same, richer output |
-| `concert_sync.spec` | PyInstaller spec (used by both scripts) |
-
-### macOS ARM (Apple Silicon)
-
 ```bash
-# From Terminal:
+# macOS ARM (Apple Silicon)
 bash scripts/build_mac.sh
 
-# Output: dist/ConcertSync (Mach-O binary)
+# Windows (PowerShell)
+powershell -ExecutionPolicy Bypass -File scripts/build_windows_exe.ps1
 ```
 
-| File | Purpose |
-|---|---|
-| `scripts/build_mac.sh` | Bash script — builds for Apple Silicon |
-| `concert_sync_mac.spec` | PyInstaller spec — `target_arch="arm64"` |
+Output: `dist/ConcertSync` (macOS) or `dist/ConcertSync.exe` (Windows).
 
-**First launch bypass:** macOS Gatekeeper blocks unsigned binaries. Right-click the file → **Open**, or run:
+## Multi-User Demo
+
+1. Start the server on your machine (`python main.py`).
+2. Share your LAN IP with others.
+3. They connect using the GUI — set **Host** to your IP and click **Connect**.
+4. Everyone sees the seat map updating live.
+
+## Load Generator
 
 ```bash
-xattr -cr dist/ConcertSync && ./dist/ConcertSync
+# Slow: 1 request every 0.5s
+python tests/load_generator.py --requests 50 --delay 0.5
+
+# Fast: all at once, targeting same seats
+python tests/load_generator.py --requests 100 --conflicts
 ```
 
-### How It Works
-
-| Step | Windows | macOS |
+| Flag | Default | Description |
 |---|---|---|
-| 1. Check Python | `py -3` (Python launcher) | `python3` |
-| 2. Create venv | `.venv-build/` | `.venv-build-mac/` |
-| 3. Install deps | `pip install pyinstaller pyside6` | same |
-| 4. Run PyInstaller | `concert_sync.spec` | `concert_sync_mac.spec` |
-| 5. Output | `dist/ConcertSync.exe` | `dist/ConcertSync` |
-
-## Demo Multi-usuario (Defensa)
-
-Para que compañeros se conecten a **tu servidor** desde sus laptops en el mismo laboratorio:
-
-### 1. Obtener tu IP local
-
-```bash
-ip addr show | grep 'inet ' | grep -v 127.0.0.1
-# Ejemplo: 192.168.1.42
-```
-
-### 2. Servidor en tu máquina
-
-```bash
-nix develop --command python main.py
-# Escucha en 0.0.0.0:9999 — accesible desde toda la red local
-```
-
-### 3. Compañeros se conectan desde sus laptops
-
-**Opción A — Script Python (sin instalar nada):** Solo necesitan Python.
-
-```bash
-python3 -c "
-import socket, json
-
-def cmd(ip, a, s='GENERAL'):
-    c = socket.socket(); c.settimeout(5)
-    c.connect((ip, 9999))
-    c.sendall(json.dumps({'action': a, 'section': s}).encode())
-    r = json.loads(c.recv(4096)); c.close(); return r
-
-ip = '192.168.1.42'  # CAMBIAR por tu IP
-r = cmd(ip, 'QUERY_SEAT_MAP', 'VIP')
-disp = sum(1 for row in r['seat_map'] for s in row if s == 'AVAILABLE')
-print(f'VIP: {disp} libres')
-r = cmd(ip, 'RESERVE', 'VIP')
-if r['status'] == 'SUCCESS':
-    tx = r['transaction_id']
-    r2 = cmd(ip, 'CONFIRM', 'VIP')
-    print(f'Comprada TX:{tx}')
-else:
-    print(f'Error: {r}')
-"
-```
-
-**Opción B — Ejecutable con GUI completa (sin Python):** Tus compañeros abren el `.exe`, escriben tu IP y usan el mapa de asientos completo.
-
-```powershell
-# En tu máquina Windows, ejecutá el script de build:
-scripts\build.bat
-```
-
-El `.exe` queda en `dist/ConcertSync.exe`. Copialo a un USB.
-
-> Ver [Build Standalone Executables](#build-standalone-executables) para macOS ARM y más detalles.
-
-Tus compañeros solo hacen doble clic en `ConcertSync.exe`, ponen tu IP en el campo "Host" y clickean **Connect**. Ven el mapa en vivo, reservan, confirman, ven notificaciones — todo igual que si tuvieran el proyecto instalado.
-
-> ⚠️ **Importante para Windows:**
-> 1. **Firewall** — Al iniciar el servidor, Windows preguntará si permitís conexiones entrantes en el puerto 9999. Aceptá.
-> 2. **WSL no funciona para esto** — Si ejecutás el servidor desde WSL, tu IP es la de WSL (no visible para los demás). Mejor corré `python main.py` directamente desde **PowerShell o cmd** (con Python instalado en Windows), así escucha en la IP real de tu máquina.
-> 3. **Antivirus** — Puede marcar el `.exe` como falso positivo por ser compilado con PyInstaller. Tus compañeros pueden ignorar la advertencia.
-
-### 4. Ver conexiones activas en el servidor
-
-Las conexiones entrantes aparecen en los logs del servidor y en la GUI local. Cada comprador ocupa un asiento real — el sistema maneja concurrencia con locks y semáforos sin race conditions.
-
-> **Tips para la defensa:** Abrí la GUI (`--mode both` o `desktop_launcher.py`) en un proyector para mostrar el mapa actualizándose en vivo mientras compañeros reservan desde sus máquinas.
-
-## Load Generator (Demo para profesora)
-
-Genera requests concurrentes para llenar asientos en vivo mientras se ve en la GUI. También accesible desde el botón **Run Load Test** en la GUI.
-
-```bash
-# Terminal 1: servidor
-nix develop --command python main.py
-
-# Terminal 2: GUI
-nix develop --command python -m frontend_pyside6 --mode client
-
-# Terminal 3: generador de carga (lento — 1 request cada 0.5s)
-nix develop --command python tests/load_generator.py --requests 50 --delay 0.5
-
-# Más lento aún (1 cada 2s)
-nix develop --command python tests/load_generator.py --requests 20 --delay 2
-
-# Rápido (todo de golpe, sin delay)
-nix develop --command python tests/load_generator.py --requests 100 --conflicts
-```
-
-| Flag | Default | Descripción |
-|---|---|---|
-| `--requests N` | 100 | Cantidad de requests concurrentes |
-| `--delay N` | 0 | Segundos de espera entre cada request |
-| `--conflicts` | off | Múltiples hilos atacan los mismos asientos |
+| `--requests N` | 100 | Number of concurrent requests |
+| `--delay N` | 0 | Seconds between requests |
+| `--conflicts` | off | Multiple threads target same seats |
 
 ## Notifications
 
-Clients can subscribe to real-time push notifications via a long-lived TCP connection:
-
-```bash
-python3 -c "
-import socket, json
-s = socket.socket()
-s.connect(('localhost', 9999))
-req = json.dumps({'action': 'SUBSCRIBE_NOTIFICATIONS', 'user_id': 'my_user'})
-s.sendall(req.encode())
-print(s.recv(4096).decode())  # SUCCESS response
-# Socket stays open — server pushes JSON notification lines
-"
-```
-
-| Event | Trigger | Message |
-|-------|---------|---------|
-| `TTL_WARNING` | ~30s before reservation expires | "Su reserva expirará en 30 segundos." |
-| `CONFIRMED` | After successful CONFIRM | "Compra confirmada correctamente." |
-| `EXPIRED` | Reservation expired, seats released | "Su reserva ha expirado y los asientos fueron liberados." |
-| `AVAILABILITY` | Section goes from full to available | "Hay nuevos asientos disponibles en la zona <SECTION>." |
-
-Protocol reference: `docs/protocol-contract-v1.md` §SUBSCRIBE_NOTIFICATIONS.
+Clients can subscribe to real-time push notifications via a long-lived TCP
+connection (`SUBSCRIBE_NOTIFICATIONS` action). Events: TTL warnings,
+confirmations, expiry notifications, and seat availability alerts.
 
 ## Tickets
 
-Every CONFIRM generates a ticket file in `tickets/`:
+Every CONFIRM generates a ticket file in `tickets/` with seat, zone, date,
+and transaction information.
 
-```
-tickets/
-└── ticket_tkt-000001.txt   # Unicode box-drawing format
-```
-
-The ticket file contains seat, zone, date, and transaction information.  
-Ticket generation runs in a background thread — it never delays the CONFIRM response.
-
-## Reset — Limpiar estado guardado
-
-El servidor persiste asientos y sesiones en `data/concert_sync.db`.
-Para empezar desde cero:
+## Reset
 
 ```bash
-# 1. Parar el servidor (Ctrl+C)
-# 2. Borrar la base de datos
 rm data/concert_sync.db
-# 3. Iniciar el servidor de nuevo
-nix develop --command python main.py
 ```
 
 ## Tests
 
 ```bash
-python -m pytest tests/ -x -v      # 217+ tests
-nix develop --command pytest tests/ -x -v  # via Nix
+python -m pytest tests/ -x -v
 ```
 
 ## Project Structure
 
 ```
 main.py                          # Server entry point
-desktop_launcher.py              # Server + frontend launcher
 src/
   server/                        # TCP server, threading, request dispatch
   client/                        # TCP client with typed exceptions
   shared_resources/              # Seat matrix, semaphores, SQLite persistence
   synchronization/               # Lock hierarchy (deadlock prevention)
   utils/                         # Config, enums, protocol validation
-frontend_pyside6/                # PySide6 desktop GUI (recommended)
-frontend_tui/                    # Textual TUI (legacy)
-tests/                           # 217 tests — protocol, notifications, tickets, race conditions
-```
-docs/
-  protocol-contract-v1.md        # JSON-over-TCP protocol specification
+frontend_pyside6/                # PySide6 desktop GUI
+tests/                           # 217+ tests — protocol, concurrency, persistence
+scripts/                         # Build & run helpers
 ```

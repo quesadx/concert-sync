@@ -28,8 +28,8 @@ MANIFEST
 tickets/
 
 # PyInstaller
-#  concert_sync.spec is tracked in git for deterministic builds.
-#  Only ignore auto-generated/manifest files.
+#  Spec files were previously tracked; now ignored as build artifacts.
+*.spec
 *.manifest
 
 # Installer logs
