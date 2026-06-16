@@ -33,6 +33,7 @@ class SeatMapWidget(QTableWidget):
     """
 
     seat_clicked = Signal(str, int, int, str)  # section, row, col, state
+    seat_double_clicked = Signal(str, int, int, str)  # section, row, col, state
 
     def __init__(self, section_name: str, rows: int, cols: int, cell_size: int = 26) -> None:
         """Initialize the seat map grid.
@@ -53,6 +54,7 @@ class SeatMapWidget(QTableWidget):
         self.horizontalHeader().setFont(header_font)
         self.verticalHeader().setFont(header_font)
         self.cellClicked.connect(self._on_cell_clicked)
+        self.cellDoubleClicked.connect(self._on_cell_double_clicked)
         self.setEditTriggers(QTableWidget.NoEditTriggers)
         self.setSelectionMode(QTableWidget.NoSelection)
         self.setFocusPolicy(Qt.NoFocus)
@@ -85,6 +87,21 @@ class SeatMapWidget(QTableWidget):
         if item:
             state = item.data(Qt.UserRole)
             self.seat_clicked.emit(self.section_name, row, col, state)
+
+    def _on_cell_double_clicked(self, row: int, col: int) -> None:
+        """Handle a cell double-click by emitting the seat_double_clicked signal.
+
+        Reads server state from Qt.UserRole data and emits the signal
+        so the MainWindow can decide whether to deselect the seat.
+
+        Args:
+            row: Row index of the double-clicked cell.
+            col: Column index of the double-clicked cell.
+        """
+        item = self.item(row, col)
+        if item:
+            state = item.data(Qt.UserRole)
+            self.seat_double_clicked.emit(self.section_name, row, col, state)
 
     def update_grid(
         self,
@@ -157,7 +174,7 @@ class SeatMapWidget(QTableWidget):
                 # Tooltip: clearly distinguish YOUR reservation vs others
                 if display_state == "OWN_RESERVED":
                     item.setToolTip(
-                        f"{self.section_name}({r},{c}) — YOUR reservation (expires in {own_cell_ttl.get((r, c), 0)}s)"
+                        f"{self.section_name}({r},{c}) — YOUR reservation (expires in {own_cell_ttl.get((r, c), 0)}s) — double-click to cancel"
                     )
                 elif display_state == "RESERVED":
                     item.setToolTip(

@@ -9,6 +9,7 @@ the seat map across all connected clients.
 from __future__ import annotations
 
 import socket
+import threading
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Set
@@ -19,6 +20,7 @@ from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -51,6 +53,7 @@ from frontend_pyside6.widgets.seat_map_widget import SeatMapWidget
 from src.client.concert_client import ConcertClient, ConcertClientError
 from src.utils.config import SECTION_CONFIG
 from src.utils.enums import Section
+from src.utils.load_generator import LoadGenerator
 
 
 class ConcertMainWindow(QMainWindow):
@@ -77,8 +80,11 @@ class ConcertMainWindow(QMainWindow):
         server_disconnected: Whether the server notified a disconnect.
     """
 
-    _refresh_complete = Signal(dict, dict, object)  # sections, seat_map_payload, user_session
+    _refresh_complete = Signal(
+        dict, dict, object
+    )  # sections, seat_map_payload, user_session
     _refresh_failed = Signal(str)  # error message
+    _load_test_results = Signal(dict)  # summary dict from LoadGenerator
 
     def __init__(self) -> None:
         """Initialize the main window, state, layout, and polling timer."""
@@ -231,10 +237,14 @@ class ConcertMainWindow(QMainWindow):
 
         btn_row = QHBoxLayout()
         self.confirm_btn = QPushButton("Confirm")
-        self.confirm_btn.clicked.connect(lambda: self._on_confirm(self.tx_input.text().strip()))
+        self.confirm_btn.clicked.connect(
+            lambda: self._on_confirm(self.tx_input.text().strip())
+        )
         btn_row.addWidget(self.confirm_btn)
         self.cancel_btn = QPushButton("Cancel")
-        self.cancel_btn.clicked.connect(lambda: self._on_cancel(self.tx_input.text().strip()))
+        self.cancel_btn.clicked.connect(
+            lambda: self._on_cancel(self.tx_input.text().strip())
+        )
         btn_row.addWidget(self.cancel_btn)
         left_panel.addLayout(btn_row)
 
@@ -255,6 +265,13 @@ class ConcertMainWindow(QMainWindow):
         self.view_logs_btn = QPushButton("Activity Center")
         self.view_logs_btn.clicked.connect(self._show_log_window)
         left_panel.addWidget(self.view_logs_btn)
+
+        left_panel.addSpacing(8)
+
+        # ── Load Test button ───────────────────────────────────────────────
+        self.load_test_btn = QPushButton("Run Load Test")
+        self.load_test_btn.clicked.connect(self._on_load_test_clicked)
+        left_panel.addWidget(self.load_test_btn)
 
         left_panel.addStretch()
         main_splitter.addWidget(left_panel_widget)
@@ -296,10 +313,13 @@ class ConcertMainWindow(QMainWindow):
             scroll.setWidgetResizable(True)
             scroll.setStyleSheet("border: none; background-color: transparent;")
             sm = SeatMapWidget(
-                section_name, cfg["rows"], cfg["cols"],
+                section_name,
+                cfg["rows"],
+                cfg["cols"],
                 cell_size=cell_sizes[section_name],
             )
             sm.seat_clicked.connect(self._on_seat_clicked)
+            sm.seat_double_clicked.connect(self._on_seat_double_clicked)
             self.seat_maps[section_name] = sm
             scroll.setWidget(sm)
             self._section_stack.addWidget(scroll)
@@ -318,6 +338,7 @@ class ConcertMainWindow(QMainWindow):
         # ── Signal-slot wiring ────────────────────────────────────────────
         self.connection_panel.connect_requested.connect(self._connect_client)
         self.connection_panel.disconnect_requested.connect(self._disconnect_client)
+        self._load_test_results.connect(self._on_load_test_results)
 
         # Default to VIP section
         self._switch_section("VIP")
@@ -343,6 +364,76 @@ class ConcertMainWindow(QMainWindow):
         else:
             self.log_dialog.raise_()
             self.log_dialog.activateWindow()
+
+    # ════════════════════════════════════════════════════════════════════════
+    # Load Test
+    # ════════════════════════════════════════════════════════════════════════
+
+    def _on_load_test_clicked(self) -> None:
+        """Show configuration dialog and run LoadGenerator in a background thread."""
+        if self.client is None:
+            self.status_bar.showMessage("Connect to server first to run load test")
+            return
+
+        num_requests, ok = QInputDialog.getInt(
+            self,
+            "Load Test Configuration",
+            "Number of concurrent requests:",
+            100,
+            10,
+            2000,
+            10,
+        )
+        if not ok:
+            return
+
+        self.load_test_btn.setEnabled(False)
+        self.status_bar.showMessage(
+            f"Running load test with {num_requests} requests..."
+        )
+        self._log_event("LOCAL", f"Load test started: {num_requests} requests")
+
+        def _worker() -> None:
+            gen = LoadGenerator(
+                host=self.connected_host,
+                port=self.connected_port,
+                num_requests=num_requests,
+                conflicts=False,
+                delay=0,
+            )
+            gen.run()
+            self._load_test_results.emit(gen.summary())
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    @Slot(dict)
+    def _on_load_test_results(self, summary: dict) -> None:
+        """Display load test results in a formatted message box."""
+        self.load_test_btn.setEnabled(True)
+        self.status_bar.showMessage("Load test complete")
+        self._log_event("LOCAL", "Load test finished")
+
+        lines = [
+            "═" * 50,
+            "  LOAD TEST RESULTS",
+            "═" * 50,
+            f"  Total requests:    {summary['total']}",
+            f"  Successful:        {summary['successes']}",
+            f"  Failed:            {summary['failures']}",
+            f"  Success rate:      {summary['success_rate']}",
+            f"  Avg duration:      {summary['avg_duration_ms']} ms",
+            f"  Max duration:      {summary['max_duration_ms']} ms",
+            f"  Min duration:      {summary['min_duration_ms']} ms",
+            "═" * 50,
+        ]
+        full_output = "\n".join(lines)
+
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Load Test Results")
+        msg.setDetailedText(full_output)
+        msg.setText(f"Load test complete: {summary['successes']}/{summary['total']} successful ({summary['success_rate']})")
+        msg.setIcon(QMessageBox.Information)
+        msg.exec()
 
     # ════════════════════════════════════════════════════════════════════════
     # Connection
@@ -384,6 +475,10 @@ class ConcertMainWindow(QMainWindow):
             self.status_bar.showMessage(f"Connected to {host}:{port} as {self.user_id}")
             self.connection_panel.set_connected(True, host, port)
             self._log_event("LOCAL", f"Connected to {host}:{port}")
+
+            # Restore session synchronously before async poll to prevent
+            # race window where user actions find no active session.
+            self._restore_session_sync()
 
             # Subscribe to push notifications in background
             self._subscribe_notifications()
@@ -469,6 +564,20 @@ class ConcertMainWindow(QMainWindow):
         worker.finished.connect(self._on_notification)
         run_worker(worker)
 
+    def _restore_session_sync(self) -> None:
+        """Synchronously restore user session from server after reconnect.
+
+        Called in _connect_client after the test query succeeds, before the
+        async poll starts. Eliminates the race window between clearing local
+        session state and the first async poll response — user actions like
+        double-click to deselect a seat find the session immediately.
+        """
+        if self.client is None:
+            return
+        response = self.client.query_seat_map()
+        user_session = response.get("user_session", None)
+        self._sync_user_session(user_session)
+
     def _subscribe_notifications(self) -> None:
         """Subscribe to push notifications in background."""
         if self.client is None:
@@ -503,12 +612,21 @@ class ConcertMainWindow(QMainWindow):
         self._log_event("NOTIFICATION", f"[{ntype}] {msg}")
 
     @Slot(dict, dict, object)
-    def _on_poll_success(self, sections: dict, seat_map_payload: dict, user_session: object) -> None:
+    def _on_poll_success(
+        self, sections: dict, seat_map_payload: dict, user_session: object
+    ) -> None:
         if self._closing:
             return
         self.section_snapshot = sections
         self.seat_map_snapshot = seat_map_payload
         self._sync_user_session(user_session)
+        self._toolbar_status.setText(
+            f"Connected to {self.connected_host}:{self.connected_port}"
+        )
+        self._toolbar_status.setObjectName("status-connected")
+        self.connection_panel.set_connected(
+            True, self.connected_host, self.connected_port
+        )
         self._render_all()
 
     def _sync_user_session(self, user_session: object) -> None:
@@ -527,17 +645,22 @@ class ConcertMainWindow(QMainWindow):
 
         session_coords: Set[tuple[str, int, int]] = set()
         seat_summary_parts: list[str] = []
+        deduped_seats: list[dict] = []
+        seen: Set[tuple[str, int, int]] = set()
         for s in seat_list:
             coord = (s["section"], s["row"], s["col"])
+            if coord not in seen:
+                seen.add(coord)
+                deduped_seats.append(s)
+                seat_summary_parts.append(f"{s['section']}({s['row']},{s['col']})")
             session_coords.add(coord)
-            seat_summary_parts.append(f"{s['section']}({s['row']},{s['col']})")
         self.own_reserved_coords = session_coords
         seat_summary = ", ".join(seat_summary_parts)
 
         if session_id in self.sessions:
             session = self.sessions[session_id]
             session.created_at = last_activity
-            session.seats = seat_list
+            session.seats = deduped_seats
         else:
             session = TrackedSession(
                 transaction_id=session_id,
@@ -546,10 +669,13 @@ class ConcertMainWindow(QMainWindow):
                 ttl_seconds=ttl_secs,
                 created_at=last_activity,
             )
-            session.seats = seat_list
+            session.seats = deduped_seats
             self.sessions[session_id] = session
             self.connection_panel.set_session_id(session_id)
-            self._log_event("LOCAL", f"Auto-loaded session {session_id} with {len(seat_list)} seat(s)")
+            self._log_event(
+                "LOCAL",
+                f"Auto-loaded session {session_id} with {len(seat_list)} seat(s)",
+            )
 
         self.tx_input.setText(session_id)
 
@@ -557,19 +683,27 @@ class ConcertMainWindow(QMainWindow):
     def _on_poll_error(self, error_msg: str) -> None:
         if self._closing:
             return
-        self.status_bar.showMessage(f"Poll error: {error_msg}")
+        self.client = None
+        self._notif_sock = None
         self._toolbar_status.setText("Disconnected")
         self._toolbar_status.setObjectName("status-disconnected")
         self.connection_panel.set_connected(False)
-        self._log_event("ERROR", f"Poll failed: {error_msg}")
+        self.status_bar.showMessage(f"Server disconnected: {error_msg}")
+        self._log_event("ERROR", f"Server disconnected: {error_msg}")
+        self._render_all()
 
     def _update_live_ttl(self) -> None:
         """Update the TTL countdown display every second.
 
-        Re-renders the TTL label and dialog session table so that ACTIVE session
-        countdowns decrease smoothly between server polls. Lightweight:
-        does NOT trigger network calls or re-render the seat map.
+        When connected, counts down smoothly between server polls for both the
+        info panel label and the seat-map overlay (via _render_seat_map).
+        When disconnected, freezes both displays at the last known server value
+        — TTL is server-authoritative and must not tick down locally after
+        connection loss.
         """
+        if self.client is None:
+            return
+
         if self.log_dialog is not None and self.log_dialog.isVisible():
             self.log_dialog.update_sessions(self.sessions)
 
@@ -577,14 +711,14 @@ class ConcertMainWindow(QMainWindow):
             self._set_ttl_display(None)
             return
 
-        active_sessions = [
-            s for s in self.sessions.values() if s.state == "ACTIVE"
-        ]
+        active_sessions = [s for s in self.sessions.values() if s.state == "ACTIVE"]
         if active_sessions:
             active_sessions.sort(key=lambda s: s.ttl_remaining())
             self._set_ttl_display(active_sessions[0])
         else:
             self._set_ttl_display(None)
+
+        self._render_seat_map()
 
     # ════════════════════════════════════════════════════════════════════════
     # Seat Click (mirrors TUI on_data_table_cell_selected, app.py 259-301)
@@ -593,6 +727,9 @@ class ConcertMainWindow(QMainWindow):
     @Slot(str, int, int, str)
     def _on_seat_clicked(self, section: str, row: int, col: int, state: str) -> None:
         if self._closing:
+            return
+        if self.client is None:
+            self.status_bar.showMessage("Not connected — cannot reserve seats")
             return
         if (section, row, col) in self._click_inflight:
             return
@@ -615,18 +752,190 @@ class ConcertMainWindow(QMainWindow):
 
         worker = ReserveWorker(self.client, section, row, col)
         worker.finished.connect(
-            lambda resp, s=section, r=row, c=col: self._on_click_reserve_success(s, r, c, resp)
+            lambda resp, s=section, r=row, c=col: self._on_click_reserve_success(
+                s, r, c, resp
+            )
         )
         worker.error.connect(
-            lambda msg, s=section, r=row, c=col: self._on_click_reserve_error(s, r, c, msg)
+            lambda msg, s=section, r=row, c=col: self._on_click_reserve_error(
+                s, r, c, msg
+            )
         )
         run_worker(worker)
+
+    @Slot(str, int, int, str)
+    def _on_seat_double_clicked(
+        self, section: str, row: int, col: int, state: str
+    ) -> None:
+        """Handle double-click on a seat.
+
+        OWN_RESERVED -> cancel session and re-reserve remaining seats.
+        PENDING (in-flight) -> deselect locally.
+        """
+        if self._closing:
+            return
+        if self.client is None:
+            self.status_bar.showMessage("Not connected — cannot modify reservations")
+            return
+
+        if state == "OWN_RESERVED":
+            for tx_id, session in list(self.sessions.items()):
+                if session.state != "ACTIVE":
+                    continue
+                for seat in session.seats:
+                    if (
+                        seat.get("section") == section
+                        and seat.get("row") == row
+                        and seat.get("col") == col
+                    ):
+                        seats_to_keep = [
+                            s
+                            for s in session.seats
+                            if not (
+                                s.get("section") == section
+                                and s.get("row") == row
+                                and s.get("col") == col
+                            )
+                        ]
+                        if not seats_to_keep:
+                            self._on_cancel(tx_id)
+                        else:
+                            self._remove_single_seat(
+                                tx_id, seats_to_keep, section, row, col
+                            )
+                        return
+            self.status_bar.showMessage(
+                f"Could not find session for seat {section}({row},{col})"
+            )
+            return
+
+        if (section, row, col) in self._click_inflight:
+            self._click_inflight.discard((section, row, col))
+            self.status_bar.showMessage(
+                f"Deselected pending seat {section}({row},{col})"
+            )
+            self._render_seat_map()
+
+    def _remove_single_seat(
+        self,
+        tx_id: str,
+        seats_to_keep: list[dict],
+        section: str,
+        row: int,
+        col: int,
+    ) -> None:
+        """Cancel a session and re-reserve remaining seats.
+
+        First removes the deselected seat from local state for immediate
+        visual feedback, then cancels the session on the server. On cancel
+        success, re-reserves the remaining seats. On re-reserve success,
+        updates local state with the new transaction.
+
+        Args:
+            tx_id: Transaction ID to cancel.
+            seats_to_keep: Seats that should remain reserved.
+            section: Section of the deselected seat.
+            row: Row of the deselected seat.
+            col: Column of the deselected seat.
+        """
+        self.own_reserved_coords.discard((section, row, col))
+        self.status_bar.showMessage(
+            f"Removing seat {section}({row},{col}) from reservation..."
+        )
+        self._render_seat_map()
+
+        worker = CancelWorker(self.client, tx_id)
+        worker.finished.connect(
+            lambda resp: self._on_remove_seat_cancel_done(seats_to_keep, tx_id)
+        )
+        worker.error.connect(
+            lambda msg, s=section, r=row, c=col: self._on_remove_seat_cancel_error(
+                s, r, c, msg
+            )
+        )
+        run_worker(worker)
+
+    def _on_remove_seat_cancel_done(
+        self, seats_to_keep: list[dict], old_tx_id: str
+    ) -> None:
+        """Cancel succeeded — mark old session as cancelled and re-reserve remaining seats."""
+        if self._closing:
+            return
+        if old_tx_id in self.sessions:
+            self.sessions[old_tx_id].state = "CANCELLED"
+        self.status_bar.showMessage("Re-reserving remaining seats...")
+        worker = ReserveSelectedWorker(self.client, seats_to_keep)
+        worker.finished.connect(self._on_remove_seat_rebook_done)
+        worker.error.connect(self._on_remove_seat_rebook_error)
+        run_worker(worker)
+
+    def _on_remove_seat_rebook_done(self, response: dict) -> None:
+        """Re-reserve succeeded — track new session."""
+        if self._closing:
+            return
+        new_tx_id = response.get("transaction_id", "")
+        ttl = response.get("ttl", 300)
+        seats = response.get("reserved_seats", [])
+        seat_summary = ", ".join(
+            f"{s['section']}({s['row']},{s['col']})" for s in seats
+        )
+
+        self._track_session(new_tx_id, "RESERVE_BATCH", seat_summary, ttl)
+        session = self.sessions.get(new_tx_id)
+        if session is not None:
+            for seat in seats:
+                coord = {
+                    "section": seat["section"],
+                    "row": seat["row"],
+                    "col": seat["col"],
+                }
+                if coord not in session.seats:
+                    session.seats.append(coord)
+
+        for seat in seats:
+            self.own_reserved_coords.add((seat["section"], seat["row"], seat["col"]))
+
+        self.tx_input.setText(new_tx_id)
+        self._log_event(
+            "LOCAL", f"Removed seat, re-reserved {seat_summary} — TX:{new_tx_id}"
+        )
+        self.status_bar.showMessage(f"Released seat, {len(seats)} seat(s) re-reserved")
+        self._render_all()
+
+    def _on_remove_seat_rebook_error(self, error_msg: str) -> None:
+        """Re-reserve failed — seats were released but not re-reserved."""
+        if self._closing:
+            return
+        self._log_event(
+            "ERROR",
+            f"Seat released but re-reserve failed: {error_msg}. "
+            "Seats are now available for others.",
+        )
+        self.status_bar.showMessage(
+            f"ERROR: seat released but re-reserve failed: {error_msg}"
+        )
+        self._render_all()
+
+    def _on_remove_seat_cancel_error(
+        self, section: str, row: int, col: int, error_msg: str
+    ) -> None:
+        """Cancel failed — restore the seat to local state."""
+        if self._closing:
+            return
+        self.own_reserved_coords.add((section, row, col))
+        self.status_bar.showMessage(
+            f"Could not remove seat {section}({row},{col}) : {error_msg}"
+        )
+        self._log_event("ERROR", f"Cancel for seat removal failed: {error_msg}")
+        self._render_seat_map()
 
     # ════════════════════════════════════════════════════════════════════════
     # Click-to-Reserve (inmediato al hacer clic)
     # ════════════════════════════════════════════════════════════════════════
 
-    def _on_click_reserve_success(self, section: str, row: int, col: int, response: dict) -> None:
+    def _on_click_reserve_success(
+        self, section: str, row: int, col: int, response: dict
+    ) -> None:
         if self._closing:
             return
         self._click_inflight.discard((section, row, col))
@@ -647,7 +956,9 @@ class ConcertMainWindow(QMainWindow):
         self.status_bar.showMessage(f"Reserved {seat_summary}")
         self._render_all()
 
-    def _on_click_reserve_error(self, section: str, row: int, col: int, error_msg: str) -> None:
+    def _on_click_reserve_error(
+        self, section: str, row: int, col: int, error_msg: str
+    ) -> None:
         if self._closing:
             return
         self._click_inflight.discard((section, row, col))
@@ -711,6 +1022,9 @@ class ConcertMainWindow(QMainWindow):
     def _on_confirm(self, tx_id: str) -> None:
         if self._closing:
             return
+        if self.client is None:
+            self.status_bar.showMessage("Not connected — cannot confirm")
+            return
         if not tx_id:
             self.status_bar.showMessage("No transaction ID to confirm")
             return
@@ -729,7 +1043,11 @@ class ConcertMainWindow(QMainWindow):
             session.state = "CONFIRMED"
             # Move confirmed seats from reserved to sold tracking
             for seat in session.seats:
-                coord = (seat.get("section", ""), seat.get("row", 0), seat.get("col", 0))
+                coord = (
+                    seat.get("section", ""),
+                    seat.get("row", 0),
+                    seat.get("col", 0),
+                )
                 if coord[0]:  # valid section
                     self.own_reserved_coords.discard(coord)
                     self.own_sold_coords.add(coord)
@@ -753,6 +1071,9 @@ class ConcertMainWindow(QMainWindow):
     def _on_cancel(self, tx_id: str) -> None:
         if self._closing:
             return
+        if self.client is None:
+            self.status_bar.showMessage("Not connected — cannot cancel")
+            return
         if not tx_id:
             self.status_bar.showMessage("No transaction ID to cancel")
             return
@@ -767,7 +1088,16 @@ class ConcertMainWindow(QMainWindow):
             return
         tx_id = response.get("transaction_id", "")
         if tx_id in self.sessions:
-            self.sessions[tx_id].state = "CANCELLED"
+            session = self.sessions[tx_id]
+            session.state = "CANCELLED"
+            for seat in session.seats:
+                coord = (
+                    seat.get("section", ""),
+                    seat.get("row", 0),
+                    seat.get("col", 0),
+                )
+                if coord[0]:
+                    self.own_reserved_coords.discard(coord)
 
         self._log_event("LOCAL", f"Cancelled TX:{tx_id}")
         self.status_bar.showMessage(f"Cancelled TX:{tx_id}")

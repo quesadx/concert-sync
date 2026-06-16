@@ -1,22 +1,19 @@
-"""Thread-safe SQLite persistence for ConcertSync seat states, sessions, and semaphores.
+"""Thread-safe SQLite persistence for ConcertSync seat states and sessions.
 
 Provides a SqliteStore class that mirrors server in-memory state to a SQLite database
 at data/concert_sync.db. All database access is serialized via threading.Lock() and
 each operation creates a fresh connection with WAL mode enabled. Connections are
 closed in finally blocks to prevent leaks.
 
-The store degrades gracefully — write failures are logged to stderr without
-crashing the server. The constructor does not depend on GlobalLog since the
-server may not have one available at initialization time.
+Supports an optional GlobalLog reference for proper error logging instead of stderr.
 """
 
 import sqlite3
 import threading
-import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.utils.enums import ReservationStatus, SeatState, Section
+from src.utils.enums import SeatState, Section
 
 
 class SqliteStore:
@@ -24,24 +21,37 @@ class SqliteStore:
 
     Serializes all DB access through a single threading.Lock(). Each public
     method opens a fresh sqlite3 connection, executes in WAL mode, and closes
-    in a finally block. Write failures are logged to stderr rather than
-    propagating exceptions.
+    in a finally block.
+
+    If a global_log is provided, errors are logged there instead of stderr.
 
     Attributes:
         db_path: Path to the SQLite database file.
         _lock: threading.Lock for serializing all database access.
     """
 
-    def __init__(self, db_path: str = "data/concert_sync.db") -> None:
+    def __init__(
+        self, db_path: str = "data/concert_sync.db", global_log: Any = None
+    ) -> None:
         """Initialize the store, create data directory, and ensure tables exist.
 
         Args:
             db_path: Relative or absolute path to the SQLite database file.
+            global_log: Optional GlobalLog instance for error logging.
         """
         self.db_path = Path(db_path)
         self._lock = threading.Lock()
+        self._global_log = global_log
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._ensure_tables()
+
+    def _log_error(self, msg: str) -> None:
+        if self._global_log:
+            self._global_log.append("ERROR", f"SqliteStore: {msg}")
+        else:
+            import sys
+
+            print(f"[SqliteStore] {msg}", file=sys.stderr)
 
     # ════════════════════════════════════════════════════════════════════════
     # Schema initialization
@@ -50,11 +60,10 @@ class SqliteStore:
     def _ensure_tables(self) -> None:
         """Create all required tables if they don't already exist.
 
-        Creates four tables:
+        Creates three tables:
         - seat_states: Per-seat state with CHECK constraint on valid states.
         - sessions: User session metadata with TTL tracking.
         - session_seats: Junction table linking sessions to reserved seats.
-        - semaphores: Per-section semaphore available counts.
 
         Foreign key enforcement is enabled via PRAGMA foreign_keys=ON.
         """
@@ -87,11 +96,6 @@ class SqliteStore:
             PRIMARY KEY (user_id, section, row, col),
             FOREIGN KEY (user_id) REFERENCES sessions(user_id) ON DELETE CASCADE
         );
-
-        CREATE TABLE IF NOT EXISTS semaphores (
-            section TEXT PRIMARY KEY,
-            available INTEGER NOT NULL
-        );
         """
         with self._lock:
             conn = None
@@ -107,10 +111,7 @@ class SqliteStore:
                 except sqlite3.OperationalError:
                     pass
             except sqlite3.Error as exc:
-                print(
-                    f"[SqliteStore] Failed to create tables: {exc}",
-                    file=sys.stderr,
-                )
+                self._log_error(f"Failed to create tables: {exc}")
             finally:
                 if conn:
                     conn.close()
@@ -147,10 +148,7 @@ class SqliteStore:
                             )
                 conn.execute("COMMIT")
             except sqlite3.Error as exc:
-                print(
-                    f"[SqliteStore] Failed to save seats: {exc}",
-                    file=sys.stderr,
-                )
+                self._log_error(f"Failed to save seats: {exc}")
             finally:
                 if conn:
                     conn.close()
@@ -196,10 +194,7 @@ class SqliteStore:
 
                 return seats
             except sqlite3.Error as exc:
-                print(
-                    f"[SqliteStore] Failed to load seats: {exc}",
-                    file=sys.stderr,
-                )
+                self._log_error(f"Failed to load seats: {exc}")
                 return None
             finally:
                 if conn:
@@ -255,10 +250,7 @@ class SqliteStore:
 
                 conn.execute("COMMIT")
             except sqlite3.Error as exc:
-                print(
-                    f"[SqliteStore] Failed to save sessions: {exc}",
-                    file=sys.stderr,
-                )
+                self._log_error(f"Failed to save sessions: {exc}")
             finally:
                 if conn:
                     conn.close()
@@ -309,10 +301,7 @@ class SqliteStore:
                     )
                 return result
             except sqlite3.Error as exc:
-                print(
-                    f"[SqliteStore] Failed to load sessions: {exc}",
-                    file=sys.stderr,
-                )
+                self._log_error(f"Failed to load sessions: {exc}")
                 return []
             finally:
                 if conn:
@@ -334,72 +323,7 @@ class SqliteStore:
                 conn.execute("PRAGMA journal_mode=WAL")
                 conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
             except sqlite3.Error as exc:
-                print(
-                    f"[SqliteStore] Failed to delete session {user_id}: {exc}",
-                    file=sys.stderr,
-                )
-            finally:
-                if conn:
-                    conn.close()
-
-    # ════════════════════════════════════════════════════════════════════════
-    # Semaphore state persistence
-    # ════════════════════════════════════════════════════════════════════════
-
-    def save_semaphore_state(self, section: Section, available_count: int) -> None:
-        """Persist the available slot count for a section's semaphore.
-
-        Args:
-            section: The Section enum value to persist.
-            available_count: Number of currently available semaphore slots.
-        """
-        with self._lock:
-            conn = None
-            try:
-                conn = sqlite3.connect(str(self.db_path))
-                conn.execute("PRAGMA journal_mode=WAL")
-                conn.execute(
-                    "INSERT OR REPLACE INTO semaphores (section, available) "
-                    "VALUES (?, ?)",
-                    (section.name, available_count),
-                )
-            except sqlite3.Error as exc:
-                print(
-                    f"[SqliteStore] Failed to save semaphore state for "
-                    f"{section.name}: {exc}",
-                    file=sys.stderr,
-                )
-            finally:
-                if conn:
-                    conn.close()
-
-    def load_semaphore_state(self, section: Section) -> Optional[int]:
-        """Load the persisted available semaphore count for a section.
-
-        Args:
-            section: The Section enum value to query.
-
-        Returns:
-            Available count as int, or None if no record exists in DB.
-        """
-        with self._lock:
-            conn = None
-            try:
-                conn = sqlite3.connect(str(self.db_path))
-                conn.execute("PRAGMA journal_mode=WAL")
-                cursor = conn.execute(
-                    "SELECT available FROM semaphores WHERE section = ?",
-                    (section.name,),
-                )
-                row = cursor.fetchone()
-                return row[0] if row else None
-            except sqlite3.Error as exc:
-                print(
-                    f"[SqliteStore] Failed to load semaphore state for "
-                    f"{section.name}: {exc}",
-                    file=sys.stderr,
-                )
-                return None
+                self._log_error(f"Failed to delete session {user_id}: {exc}")
             finally:
                 if conn:
                     conn.close()

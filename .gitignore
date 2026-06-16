@@ -25,6 +25,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+tickets/
 
 # PyInstaller
 #  concert_sync.spec is tracked in git for deterministic builds.
