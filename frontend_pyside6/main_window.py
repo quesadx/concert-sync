@@ -300,6 +300,7 @@ class ConcertMainWindow(QMainWindow):
                 cell_size=cell_sizes[section_name],
             )
             sm.seat_clicked.connect(self._on_seat_clicked)
+            sm.seat_double_clicked.connect(self._on_seat_double_clicked)
             self.seat_maps[section_name] = sm
             scroll.setWidget(sm)
             self._section_stack.addWidget(scroll)
@@ -621,6 +622,162 @@ class ConcertMainWindow(QMainWindow):
             lambda msg, s=section, r=row, c=col: self._on_click_reserve_error(s, r, c, msg)
         )
         run_worker(worker)
+
+    @Slot(str, int, int, str)
+    def _on_seat_double_clicked(self, section: str, row: int, col: int, state: str) -> None:
+        """Handle double-click on a seat.
+
+        OWN_RESERVED -> cancel session and re-reserve remaining seats.
+        PENDING (in-flight) -> deselect locally.
+        """
+        if self._closing:
+            return
+
+        if state == "OWN_RESERVED":
+            for tx_id, session in list(self.sessions.items()):
+                if session.state != "ACTIVE":
+                    continue
+                for seat in session.seats:
+                    if (
+                        seat.get("section") == section
+                        and seat.get("row") == row
+                        and seat.get("col") == col
+                    ):
+                        seats_to_keep = [
+                            s for s in session.seats
+                            if not (
+                                s.get("section") == section
+                                and s.get("row") == row
+                                and s.get("col") == col
+                            )
+                        ]
+                        if not seats_to_keep:
+                            self._on_cancel(tx_id)
+                        else:
+                            self._remove_single_seat(
+                                tx_id, seats_to_keep, section, row, col
+                            )
+                        return
+            self.status_bar.showMessage(
+                f"Could not find session for seat {section}({row},{col})"
+            )
+            return
+
+        if (section, row, col) in self._click_inflight:
+            self._click_inflight.discard((section, row, col))
+            self.status_bar.showMessage(
+                f"Deselected pending seat {section}({row},{col})"
+            )
+            self._render_seat_map()
+
+    def _remove_single_seat(
+        self,
+        tx_id: str,
+        seats_to_keep: list[dict],
+        section: str,
+        row: int,
+        col: int,
+    ) -> None:
+        """Cancel a session and re-reserve remaining seats.
+
+        First removes the deselected seat from local state for immediate
+        visual feedback, then cancels the session on the server. On cancel
+        success, re-reserves the remaining seats. On re-reserve success,
+        updates local state with the new transaction.
+
+        Args:
+            tx_id: Transaction ID to cancel.
+            seats_to_keep: Seats that should remain reserved.
+            section: Section of the deselected seat.
+            row: Row of the deselected seat.
+            col: Column of the deselected seat.
+        """
+        self.own_reserved_coords.discard((section, row, col))
+        self.status_bar.showMessage(
+            f"Removing seat {section}({row},{col}) from reservation..."
+        )
+        self._render_seat_map()
+
+        worker = CancelWorker(self.client, tx_id)
+        worker.finished.connect(
+            lambda resp: self._on_remove_seat_cancel_done(seats_to_keep, tx_id)
+        )
+        worker.error.connect(
+            lambda msg, s=section, r=row, c=col: self._on_remove_seat_cancel_error(
+                s, r, c, msg
+            )
+        )
+        run_worker(worker)
+
+    def _on_remove_seat_cancel_done(
+        self, seats_to_keep: list[dict], old_tx_id: str
+    ) -> None:
+        """Cancel succeeded — mark old session as cancelled and re-reserve remaining seats."""
+        if self._closing:
+            return
+        if old_tx_id in self.sessions:
+            self.sessions[old_tx_id].state = "CANCELLED"
+        self.status_bar.showMessage("Re-reserving remaining seats...")
+        worker = ReserveSelectedWorker(self.client, seats_to_keep)
+        worker.finished.connect(self._on_remove_seat_rebook_done)
+        worker.error.connect(self._on_remove_seat_rebook_error)
+        run_worker(worker)
+
+    def _on_remove_seat_rebook_done(self, response: dict) -> None:
+        """Re-reserve succeeded — track new session."""
+        if self._closing:
+            return
+        new_tx_id = response.get("transaction_id", "")
+        ttl = response.get("ttl", 300)
+        seats = response.get("reserved_seats", [])
+        seat_summary = ", ".join(
+            f"{s['section']}({s['row']},{s['col']})" for s in seats
+        )
+
+        self._track_session(new_tx_id, "RESERVE_BATCH", seat_summary, ttl)
+        session = self.sessions.get(new_tx_id)
+        if session is not None:
+            for seat in seats:
+                coord = {"section": seat["section"], "row": seat["row"], "col": seat["col"]}
+                if coord not in session.seats:
+                    session.seats.append(coord)
+
+        for seat in seats:
+            self.own_reserved_coords.add((seat["section"], seat["row"], seat["col"]))
+
+        self.tx_input.setText(new_tx_id)
+        self._log_event("LOCAL", f"Removed seat, re-reserved {seat_summary} — TX:{new_tx_id}")
+        self.status_bar.showMessage(
+            f"Released seat, {len(seats)} seat(s) re-reserved"
+        )
+        self._render_all()
+
+    def _on_remove_seat_rebook_error(self, error_msg: str) -> None:
+        """Re-reserve failed — seats were released but not re-reserved."""
+        if self._closing:
+            return
+        self._log_event(
+            "ERROR",
+            f"Seat released but re-reserve failed: {error_msg}. "
+            "Seats are now available for others.",
+        )
+        self.status_bar.showMessage(
+            f"ERROR: seat released but re-reserve failed: {error_msg}"
+        )
+        self._render_all()
+
+    def _on_remove_seat_cancel_error(
+        self, section: str, row: int, col: int, error_msg: str
+    ) -> None:
+        """Cancel failed — restore the seat to local state."""
+        if self._closing:
+            return
+        self.own_reserved_coords.add((section, row, col))
+        self.status_bar.showMessage(
+            f"Could not remove seat {section}({row},{col}) : {error_msg}"
+        )
+        self._log_event("ERROR", f"Cancel for seat removal failed: {error_msg}")
+        self._render_seat_map()
 
     # ════════════════════════════════════════════════════════════════════════
     # Click-to-Reserve (inmediato al hacer clic)
