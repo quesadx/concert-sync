@@ -34,9 +34,6 @@
 
             nodejs
             pnpm
-
-            opencode
-            gsd
           ];
 
           shellHook = ''

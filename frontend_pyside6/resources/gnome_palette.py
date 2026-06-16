@@ -1,53 +1,55 @@
-"""GNOME Adwaita color palette — single source of truth for all UI colors.
+"""Light mode color palette — clean, modern, high-contrast design.
 
-Based on the official GNOME HIG palette (libadwaita 1.x).
-Maps conceptual roles (bg-primary, accent, etc.) to Adwaita named colors.
+Transitioned from GNOME Adwaita dark to an Apple-inspired light palette.
+All UI colors are defined here as the single source of truth.
 """
 
 # ── Backgrounds ────────────────────────────────────────────────────────
-BG_PRIMARY      = "#241f31"   # Adwaita dark_4 — main window background
-BG_SECONDARY    = "#3d3846"   # Adwaita dark_3 — panel/card background
-SURFACE         = "#3d3846"   # Adwaita dark_3 — widget surface
-SURFACE_HOVER   = "#4a4556"   # Custom: 10% lighter than dark_3
+BG_PRIMARY      = "#f5f5f7"   # Very light gray — main window background
+BG_SECONDARY    = "#ffffff"   # White — panel/card background
+SURFACE         = "#ffffff"   # White — widget surface
+SURFACE_HOVER   = "#f0f0f2"   # Light — hover state
 
 # ── Accent ─────────────────────────────────────────────────────────────
-ACCENT          = "#3584e4"   # Adwaita blue_3 — GNOME default accent
-ACCENT_WARM     = "#62a0ea"   # Adwaita blue_2 — hover/soft accent
-ACCENT_SOFT     = "rgba(53, 132, 228, 0.15)"  # blue_3 at 15% opacity
+ACCENT          = "#2563eb"   # Blue-600 — primary accent
+ACCENT_WARM     = "#3b82f6"   # Blue-500 — hover/soft accent
+ACCENT_SOFT     = "rgba(37, 99, 235, 0.08)"  # Blue-600 at 8% opacity
 
 # ── Semantic ───────────────────────────────────────────────────────────
-ERROR           = "#e01b24"   # Adwaita red_3
-SUCCESS         = "#2ec27e"   # Adwaita green_4
-INFO            = "#62a0ea"   # Adwaita blue_2
-WARNING         = "#f5c211"   # Adwaita yellow_4
+ERROR           = "#dc2626"   # Red-600
+SUCCESS         = "#16a34a"   # Green-600
+INFO            = "#3b82f6"   # Blue-500
+WARNING         = "#d97706"   # Amber-600
 
 # ── Text ───────────────────────────────────────────────────────────────
-TEXT_PRIMARY    = "#ffffff"   # White
-TEXT_SECONDARY  = "#c0bfbc"   # Adwaita light_4
-TEXT_MUTED      = "#77767b"   # Adwaita dark_1
+TEXT_PRIMARY    = "#1d1d1f"   # Near-black
+TEXT_SECONDARY  = "#6e6e73"   # Medium gray
+TEXT_MUTED      = "#86868b"   # Light gray
 
 # ── Borders ────────────────────────────────────────────────────────────
-BORDER          = "#5e5c64"   # Adwaita dark_2
-BORDER_FOCUS    = "#3584e4"   # blue_3 (accent for focused elements)
+BORDER          = "#d2d2d7"   # Light border
+BORDER_FOCUS    = "#2563eb"   # Blue-600 (accent for focused elements)
 
 # ── Seat Map Cell Colors ───────────────────────────────────────────────
-SEAT_AVAILABLE  = "#2ec27e"   # Adwaita green_4
-SEAT_OWN        = "#3584e4"   # Adwaita blue_3 — YOUR reservation
-SEAT_RESERVED   = "#e66100"   # Adwaita orange_4 — reserved by another user
-SEAT_SOLD       = "#e01b24"   # Adwaita red_3 — confirmed/sold
-SEAT_PENDING    = "#9141ac"   # Adwaita purple_3 — local pre-reserve
+SEAT_AVAILABLE  = "#16a34a"   # Green-600
+SEAT_OWN        = "#2563eb"   # Blue-600 — YOUR reservation
+SEAT_RESERVED   = "#ea580c"   # Orange-600 — reserved by another user
+SEAT_SOLD       = "#dc2626"   # Red-600 — confirmed/sold by another user
+SEAT_OWN_SOLD   = "#4338ca"   # Indigo-600 — YOUR purchased seat
+SEAT_PENDING    = "#9333ea"   # Purple-600 — local pre-reserve
 
 # ── Seat Map Cell Borders ──────────────────────────────────────────────
-BORDER_AVAILABLE  = "1px solid #5e5c64"
-BORDER_OWN        = "2px solid #3584e4"
-BORDER_RESERVED   = "1px solid #5e5c64"
-BORDER_SOLD       = "1px solid #5e5c64"
-BORDER_PENDING    = "2px dashed #62a0ea"
+BORDER_AVAILABLE  = "1px solid #16a34a"
+BORDER_OWN        = "2px solid #2563eb"
+BORDER_RESERVED   = "1px solid #ea580c"
+BORDER_SOLD       = "1px solid #dc2626"
+BORDER_OWN_SOLD   = "1px solid #4338ca"
+BORDER_PENDING    = "2px dashed #9333ea"
 
 # ── Event Log Category Colors ──────────────────────────────────────────
-CAT_LOCAL         = "#2ec27e"   # green_4 — user's own actions
-CAT_REMOTE        = "#e66100"   # orange_4 — other users' actions
-CAT_ERROR         = "#e01b24"   # red_3 — protocol errors
-CAT_SERVER        = "#77767b"   # dark_1 — server lifecycle
-CAT_EXPIRE        = "#986a44"   # Adwaita brown_3 — TTL expiration
-CAT_NOTIFICATION  = "#9141ac"   # purple_3 — push notifications
+CAT_LOCAL         = "#16a34a"   # Green-600 — user's own actions
+CAT_REMOTE        = "#ea580c"   # Orange-600 — other users' actions
+CAT_ERROR         = "#dc2626"   # Red-600 — protocol errors
+CAT_SERVER        = "#6e6e73"   # Gray — server lifecycle
+CAT_EXPIRE        = "#b45309"   # Amber-700 — TTL expiration
+CAT_NOTIFICATION  = "#9333ea"   # Purple-600 — push notifications

@@ -34,18 +34,18 @@ class TestPySide6ProtocolCompliance:
     # ------------------------------------------------------------------
 
     def test_confirm_success(self, client):
-        """Reserve → confirm makes the seat SOLD in the seat map."""
+        """Reserve → confirm makes the seat SOLD/OWN_SOLD in the seat map."""
         reserve_resp = client.reserve_seat("VIP", 0, 0)
         tx_id = reserve_resp["transaction_id"]
 
         confirm_resp = client.confirm(tx_id)
         assert confirm_resp["status"] == "SUCCESS"
 
-        # Verify the seat is now marked SOLD in the full seat map
         seat_map = client.query_seat_map()["seat_map"]
         vip_grid = seat_map["VIP"]
-        assert vip_grid[0][0] == "SOLD", (
-            "Seat should be SOLD after confirm, got: " + vip_grid[0][0]
+        assert vip_grid[0][0] == "OWN_SOLD", (
+            "Seat should be OWN_SOLD for the purchasing user after confirm, got: "
+            + vip_grid[0][0]
         )
 
     # ------------------------------------------------------------------

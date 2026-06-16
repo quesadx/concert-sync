@@ -45,7 +45,7 @@ ensure_python_bin() {
 
 ensure_venv() {
   if [[ "$USE_UV" -eq 1 ]]; then
-    uv sync --group dev --group tui
+    uv sync --group dev
     return 0
   fi
 
@@ -134,12 +134,10 @@ case "$MODE" in
   server)
     run_python main.py "$@"
     ;;
-  tui)
-    ensure_package textual
-    run_python -m frontend_tui "$@"
+  client|tui)
+    run_python -m frontend_pyside6 --mode client "$@"
     ;;
   both)
-    ensure_package textual
     run_python main.py "$@" &
     SERVER_PID=$!
 
@@ -148,13 +146,10 @@ case "$MODE" in
       exit 1
     fi
 
-    run_python -m frontend_tui "$@"
-    ;;
-  client)
     run_python -m frontend_pyside6 --mode client "$@"
     ;;
   dashboard)
-    run_python desktop_launcher.py --mode dashboard "$@"
+    run_python -m frontend_pyside6 --mode dashboard "$@"
     ;;
   multi)
     # Multi-client mode: start server, then launch 2 clients with delay
@@ -196,7 +191,7 @@ case "$MODE" in
     uv run python tests/load_generator.py --requests 500 --conflicts "$@"
     ;;
   *)
-    printf 'usage: %s [server|tui|both|client|dashboard|multi|test|load-test|stress-test] [args...]\n' "$0" >&2
+    printf 'usage: %s [server|client|both|dashboard|multi|test|load-test|stress-test] [args...]\n' "$0" >&2
     exit 2
     ;;
 esac

@@ -1,17 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   ConcertSync PySide6 — GNOME/Adwaita-Inspired Design
+   ConcertSync PySide6 — Light Mode Design
    Colors sourced from frontend_pyside6/resources/gnome_palette.py.
-   Based on the official GNOME HIG palette (libadwaita 1.x).
-
-   Color reference:
-     bg-primary:   #241f31 (dark_4);  bg-secondary: #3d3846 (dark_3);
-     surface:      #3d3846 (dark_3);  surface-hover: #4a4556;
-     accent:       #3584e4 (blue_3);  accent-warm:   #62a0ea (blue_2);
-     accent-soft:  rgba(53,132,228,0.15);
-     error:        #e01b24 (red_3);   success:       #2ec27e (green_4);
-     info:         #62a0ea (blue_2);  warning:       #f5c211 (yellow_4);
-     text-primary: #ffffff;           text-secondary:#c0bfbc (light_4);
-     text-muted:   #77767b (dark_1);  border:        #5e5c64 (dark_2);
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ── Global ──────────────────────────────────────────────────────────────── */
@@ -19,187 +8,229 @@ QWidget {
     font-family: -apple-system, "Helvetica Neue", "SF Pro Text", Arial, sans-serif;
 }
 
-/* ── Main Window ─────────────────────────────────────────────────────────── */
-QMainWindow {
-    background-color: #241f31;
-    color: #ffffff;
+/* ── Main Window & Dialogs ───────────────────────────────────────────────── */
+QMainWindow, QDialog {
+    background-color: #f5f5f7;
+    color: #1d1d1f;
 }
 
-/* ── Push Buttons ────────────────────────────────────────────────────────── */
-QPushButton {
-    background-color: #3d3846;
-    color: #ffffff;
-    border: 1px solid #5e5c64;
-    padding: 8px 16px;
-    border-radius: 10px;
-    font-weight: 500;
-    font-size: 13px;
-}
-
-QPushButton:hover {
-    background-color: #4a4556;
-    border-color: #3584e4;
-}
-
-QPushButton:pressed {
-    background-color: #5e5c64;
-}
-
-QPushButton#accent-btn {
-    background-color: #3584e4;
-    color: #ffffff;
-    border: none;
-    font-weight: 700;
-    font-size: 13px;
-}
-
-QPushButton#accent-btn:hover {
-    background-color: #62a0ea;
-}
-
-/* ── Danger Button ───────────────────────────────────────────────────────── */
-QPushButton#danger-btn {
-    background-color: #e01b24;
-    color: #ffffff;
-    border: 1px solid #e01b24;
-    border-radius: 10px;
-    padding: 6px 16px;
-    font-weight: 500;
-    font-size: 13px;
-}
-
-QPushButton#danger-btn:hover {
-    background-color: #f66151;
-}
-
-/* ── Text Inputs ─────────────────────────────────────────────────────────── */
-QLineEdit {
-    background-color: #1a1a2a;
-    color: #ffffff;
-    border: 1px solid #5e5c64;
-    padding: 6px 12px;
-    border-radius: 10px;
-    font-size: 13px;
-}
-
-QLineEdit:focus {
-    border-color: #3584e4;
-    background-color: #241f31;
-}
-
-/* ── Text Edit / Event Log ──────────────────────────────────────────────── */
-QTextEdit {
-    background-color: #1a1a2a;
-    color: #c0bfbc;
-    border: 1px solid #5e5c64;
-    border-radius: 12px;
-    font-size: 13px;
-    padding: 4px;
+/* ── Toolbar ──────────────────────────────────────────────────────────────── */
+QWidget#toolbar {
+    background-color: rgba(255, 255, 255, 0.92);
+    border-bottom: 1px solid #d2d2d7;
 }
 
 /* ── Labels ───────────────────────────────────────────────────────────────── */
 QLabel {
-    color: #c0bfbc;
+    color: #6e6e73;
     font-size: 13px;
 }
 
 QLabel#header-title {
     font-size: 18px;
     font-weight: 700;
-    color: #3584e4;
+    color: #1d1d1f;
 }
 
 QLabel#header-subtitle {
     font-size: 11px;
     font-weight: 400;
-    color: #77767b;
+    color: #86868b;
 }
 
 QLabel#section-label {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
-    color: #c0bfbc;
+    color: #86868b;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 QLabel#status-connected {
-    color: #2ec27e;
-    font-weight: 700;
+    color: #16a34a;
+    font-weight: 600;
 }
 
 QLabel#status-disconnected {
-    color: #e01b24;
-    font-weight: 700;
+    color: #dc2626;
+    font-weight: 600;
 }
 
-/* ── Seat Map Legend Swatches ─────────────────────────────────────────────── */
 QLabel#seat-legend-swatch {
-    min-width: 14px;
-    max-width: 14px;
-    min-height: 14px;
-    max-height: 14px;
-    border-radius: 4px;
-    border: none;
+    min-width: 12px;
+    max-width: 12px;
+    min-height: 12px;
+    max-height: 12px;
+    border: 1px solid #d2d2d7;
 }
 
 QLabel#legend-text {
-    font-size: 10px;
-    color: #c0bfbc;
+    font-size: 11px;
+    color: #6e6e73;
 }
 
-/* ── Selected Seats Display ──────────────────────────────────────────────── */
+QLabel#sold-header {
+    font-size: 13px;
+    font-weight: 600;
+    color: #1d1d1f;
+}
+
+QLabel#summary-text {
+    font-size: 12px;
+    color: #6e6e73;
+}
+
 QLabel#selected-list {
     font-size: 13px;
-    color: #ffffff;
+    color: #1d1d1f;
     padding: 8px;
-    background-color: #1a1a2a;
-    border-radius: 10px;
+    background-color: #ffffff;
+    border: 1px solid #d2d2d7;
     min-height: 48px;
 }
 
-/* ── TTL Countdown Display ────────────────────────────────────────────────── */
 QLabel#ttl-display {
     font-size: 14px;
-    font-weight: bold;
-    padding: 6px;
-    background-color: #1a1a2a;
-    border-radius: 4px;
+    font-weight: 700;
+    padding: 8px;
+    background-color: #ffffff;
+    border: 1px solid #d2d2d7;
 }
 
-/* ── Sold Header ──────────────────────────────────────────────────────────── */
-QLabel#sold-header {
-    font-size: 14px;
-    font-weight: bold;
-    color: #3584e4;
+/* ── Push Buttons ────────────────────────────────────────────────────────── */
+QPushButton {
+    background-color: #ffffff;
+    color: #1d1d1f;
+    border: 1px solid #d2d2d7;
+    padding: 8px 16px;
+    font-weight: 500;
+    font-size: 13px;
 }
 
-/* ── Summary Text ─────────────────────────────────────────────────────────── */
-QLabel#summary-text {
+QPushButton:hover {
+    background-color: #f0f0f2;
+}
+
+QPushButton:pressed {
+    background-color: #e8e8ed;
+}
+
+QPushButton:disabled {
+    background-color: #f5f5f7;
+    color: #c7c7cc;
+    border-color: #e8e8ed;
+}
+
+/* ── Section Switcher Buttons ─────────────────────────────────────────────── */
+QWidget#section-switcher QPushButton {
+    border-radius: 0px;
+    margin: 0px;
+    padding: 8px 16px;
     font-size: 12px;
+    font-weight: 600;
+}
+
+QWidget#section-switcher QPushButton:checked {
     color: #ffffff;
+    border-width: 1px;
 }
 
-/* ── Toolbar ──────────────────────────────────────────────────────────────── */
-QWidget#toolbar {
-    background-color: #1a1a2a;
-    border-bottom: 1px solid #5e5c64;
+QWidget#section-switcher QPushButton:checked:hover {
+    opacity: 0.9;
 }
 
-/* ── Card Background ──────────────────────────────────────────────────────── */
-QWidget#card-bg {
-    background-color: #3d3846;
-    border: 1px solid #5e5c64;
-    border-radius: 14px;
+/* ── Confirm Button — filled accent ──────────────────────────────────────── */
+QPushButton#action-confirm {
+    background-color: #2563eb;
+    color: #ffffff;
+    border: 1px solid #2563eb;
+    padding: 8px 16px;
+    font-weight: 600;
+    font-size: 13px;
+    margin: 0px;
+}
+
+QPushButton#action-confirm:hover {
+    background-color: #3b82f6;
+    border-color: #3b82f6;
+}
+
+QPushButton#action-confirm:pressed {
+    background-color: #1d4ed8;
+}
+
+/* ── Cancel Button — outline/danger ──────────────────────────────────────── */
+QPushButton#action-cancel {
+    background-color: #ffffff;
+    color: #dc2626;
+    border: 1px solid #dc2626;
+    padding: 8px 16px;
+    font-weight: 500;
+    font-size: 13px;
+    margin: 0px;
+}
+
+QPushButton#action-cancel:hover {
+    background-color: #fef2f2;
+}
+
+QPushButton#action-cancel:pressed {
+    background-color: #fee2e2;
+}
+
+/* ── Accent Button (Connect) ─────────────────────────────────────────────── */
+QPushButton#accent-btn {
+    background-color: #2563eb;
+    color: #ffffff;
+    border: 1px solid #2563eb;
+    font-weight: 600;
+}
+
+QPushButton#accent-btn:hover {
+    background-color: #3b82f6;
+    border-color: #3b82f6;
+}
+
+QPushButton#accent-btn:pressed {
+    background-color: #1d4ed8;
+}
+
+/* ── Text Inputs ─────────────────────────────────────────────────────────── */
+QLineEdit {
+    background-color: #ffffff;
+    color: #1d1d1f;
+    border: 1px solid #d2d2d7;
+    padding: 8px 12px;
+    font-size: 13px;
+}
+
+QLineEdit:focus {
+    border-color: #2563eb;
+    background-color: #ffffff;
+}
+
+QLineEdit:disabled {
+    background-color: #f5f5f7;
+    color: #c7c7cc;
+}
+
+/* ── Text Edit / Event Log ──────────────────────────────────────────────── */
+QTextEdit {
+    background-color: #ffffff;
+    color: #1d1d1f;
+    border: 1px solid #d2d2d7;
+    font-size: 12px;
+    padding: 8px;
 }
 
 /* ── Message Box ─────────────────────────────────────────────────────────── */
 QMessageBox {
-    background-color: #3d3846;
-    color: #ffffff;
+    background-color: #ffffff;
 }
 
 QMessageBox QLabel {
-    color: #ffffff;
-    font-size: 14px;
+    color: #1d1d1f;
+    font-size: 13px;
 }
 
 QMessageBox QPushButton {
@@ -209,55 +240,53 @@ QMessageBox QPushButton {
 
 /* ── Status Bar ─────────────────────────────────────────────────────────── */
 QStatusBar {
-    background-color: #241f31;
-    color: #c0bfbc;
-    border-top: 1px solid #5e5c64;
+    background-color: #ffffff;
+    color: #6e6e73;
+    border-top: 1px solid #d2d2d7;
     font-size: 12px;
 }
 
 /* ── Progress Bars (Dashboard) ────────────────────────────────────────────── */
 QProgressBar {
-    background-color: #1a1a2a;
-    border: 1px solid #5e5c64;
-    border-radius: 8px;
+    background-color: #f0f0f2;
+    border: 1px solid #d2d2d7;
     text-align: center;
-    color: #ffffff;
-    font-size: 12px;
+    color: #6e6e73;
+    font-size: 11px;
+    height: 24px;
 }
 
 QProgressBar::chunk {
-    border-radius: 8px;
 }
 
 QProgressBar#vip-progress::chunk {
-    background-color: #3584e4;
+    background-color: #2563eb;
 }
 
 QProgressBar#preferential-progress::chunk {
-    background-color: #62a0ea;
+    background-color: #3b82f6;
 }
 
 QProgressBar#general-progress::chunk {
-    background-color: #9141ac;
+    background-color: #9333ea;
 }
 
-/* ── Group Boxes (Card style) ────────────────────────────────────────────── */
+/* ── Group Boxes ─────────────────────────────────────────────────────────── */
 QGroupBox {
-    background-color: #3d3846;
-    border: 1px solid #5e5c64;
-    border-radius: 14px;
+    background-color: #ffffff;
+    border: 1px solid #d2d2d7;
     margin-top: 12px;
-    padding-top: 10px;
+    padding-top: 14px;
     font-weight: 600;
-    color: #3584e4;
+    color: #1d1d1f;
     font-size: 13px;
 }
 
 QGroupBox::title {
     subcontrol-origin: margin;
     subcontrol-position: top left;
-    padding: 4px 10px;
-    color: #3584e4;
+    padding: 0 10px;
+    color: #1d1d1f;
 }
 
 /* ── Scroll Areas ────────────────────────────────────────────────────────── */
@@ -267,19 +296,17 @@ QScrollArea {
 }
 
 QScrollBar:vertical {
-    background-color: #1a1a2a;
-    width: 8px;
-    border-radius: 4px;
+    background-color: transparent;
+    width: 6px;
 }
 
 QScrollBar::handle:vertical {
-    background-color: #4a4556;
-    border-radius: 4px;
+    background-color: #c7c7cc;
     min-height: 30px;
 }
 
 QScrollBar::handle:vertical:hover {
-    background-color: #5e5c64;
+    background-color: #a1a1a6;
 }
 
 QScrollBar::add-line:vertical,
@@ -288,19 +315,17 @@ QScrollBar::sub-line:vertical {
 }
 
 QScrollBar:horizontal {
-    background-color: #1a1a2a;
-    height: 8px;
-    border-radius: 4px;
+    background-color: transparent;
+    height: 6px;
 }
 
 QScrollBar::handle:horizontal {
-    background-color: #4a4556;
-    border-radius: 4px;
+    background-color: #c7c7cc;
     min-width: 30px;
 }
 
 QScrollBar::handle:horizontal:hover {
-    background-color: #5e5c64;
+    background-color: #a1a1a6;
 }
 
 QScrollBar::add-line:horizontal,
@@ -310,106 +335,45 @@ QScrollBar::sub-line:horizontal {
 
 /* ── Splitters ───────────────────────────────────────────────────────────── */
 QSplitter::handle {
-    background-color: #5e5c64;
-    border-radius: 1px;
+    background-color: #d2d2d7;
 }
 
 QSplitter::handle:horizontal {
-    width: 2px;
+    width: 1px;
 }
 
 QSplitter::handle:vertical {
-    height: 2px;
+    height: 1px;
 }
 
-/* ── Combo Boxes ─────────────────────────────────────────────────────────── */
-QComboBox {
-    background-color: #3d3846;
-    color: #ffffff;
-    border: 1px solid #5e5c64;
-    border-radius: 10px;
-    padding: 6px 12px;
-    font-size: 13px;
-}
-
-QComboBox:hover {
-    border-color: #3584e4;
-}
-
-QComboBox::drop-down {
-    border: none;
-    width: 24px;
-}
-
-QComboBox QAbstractItemView {
-    background-color: #3d3846;
-    color: #ffffff;
-    border: 1px solid #5e5c64;
-    selection-background-color: rgba(53, 132, 228, 0.15);
-    border-radius: 10px;
-}
-
-/* ── Tab Widget (Activity Center) ────────────────────────────────────────── */
-QTabWidget::pane {
-    border: 1px solid #5e5c64;
-    border-radius: 14px;
-    background-color: #1a1a2a;
-    top: -1px;
-}
-
-QTabBar::tab {
-    background-color: #3d3846;
-    color: #c0bfbc;
-    padding: 10px 20px;
-    border: 1px solid #5e5c64;
-    border-bottom: none;
-    border-top-left-radius: 10px;
-    border-top-right-radius: 10px;
-    font-weight: 500;
-    font-size: 13px;
-    margin-right: 4px;
-}
-
-QTabBar::tab:selected {
-    background-color: #1a1a2a;
-    color: #3584e4;
-    border-color: #5e5c64;
-    border-bottom: 1px solid #1a1a2a;
-}
-
-QTabBar::tab:hover {
-    color: #ffffff;
-    background-color: #4a4556;
-}
-
-/* ── Data Tables (ActivityDialog, not seat-map — seat-map uses programmatic
-     setBackground() which is overridden by ANY QTableWidget::item QSS rule) ─ */
+/* ── Data Tables ─────────────────────────────────────────────────────────── */
 QTableWidget {
-    background-color: #241f31;
-    color: #ffffff;
-    gridline-color: transparent;
-    border: 1px solid #5e5c64;
-    border-radius: 12px;
-    font-size: 13px;
-}
-
-QHeaderView::section {
-    background-color: #3d3846;
-    color: #c0bfbc;
-    border: 1px solid #5e5c64;
-    padding: 6px;
-    font-weight: 600;
+    background-color: #ffffff;
+    color: #1d1d1f;
+    gridline-color: #f0f0f2;
+    border: 1px solid #d2d2d7;
     font-size: 12px;
 }
 
-/* ── Sold List Background ─────────────────────────────────────────────────── */
-QWidget#sold-list-bg {
-    background-color: #3d3846;
-    border: 1px solid #5e5c64;
-    border-radius: 10px;
+QHeaderView::section {
+    background-color: #f5f5f7;
+    color: #6e6e73;
+    border: none;
+    border-bottom: 1px solid #d2d2d7;
+    padding: 8px 6px;
+    font-weight: 600;
+    font-size: 11px;
 }
 
-/* ── Dialog ──────────────────────────────────────────────────────────────── */
-QDialog {
-    background-color: #3d3846;
+/* ── Sold List Background ─────────────────────────────────────────────────- */
+QWidget#sold-list-bg {
+    background-color: #ffffff;
+    border: 1px solid #d2d2d7;
+    padding: 12px;
+}
+
+/* ── Card Background ─────────────────────────────────────────────────────- */
+QWidget#card-bg {
+    background-color: #ffffff;
+    border: 1px solid #d2d2d7;
 }

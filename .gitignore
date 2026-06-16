@@ -28,8 +28,6 @@ MANIFEST
 tickets/
 
 # PyInstaller
-#  concert_sync.spec is tracked in git for deterministic builds.
-#  Only ignore auto-generated/manifest files.
 *.manifest
 
 # Installer logs
@@ -228,3 +226,6 @@ artifacts/
 
 # ConcertSync SQLite runtime database
 data/*.db
+
+# MacOS
+.DS_Store

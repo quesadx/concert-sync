@@ -193,25 +193,28 @@ class ConcertMainWindow(QMainWindow):
         switcher_label.setObjectName("section-label")
         left_panel.addWidget(switcher_label)
 
-        switcher_layout = QHBoxLayout()
-        switcher_layout.setSpacing(6)
+        switcher_container = QWidget()
+        switcher_container.setObjectName("section-switcher")
+        switcher_layout = QHBoxLayout(switcher_container)
+        switcher_layout.setSpacing(0)
+        switcher_layout.setContentsMargins(0, 0, 0, 0)
         self._section_buttons: Dict[str, QPushButton] = {}
         section_meta = {
-            "VIP": ("VIP", "#3584e4"),
-            "PREFERENTIAL": ("Preferential", "#62a0ea"),
-            "GENERAL": ("General", "#9141ac"),
+            "VIP": ("VIP", "#2563eb"),
+            "PREFERENTIAL": ("Preferential", "#3b82f6"),
+            "GENERAL": ("General", "#9333ea"),
         }
         for sec_name, (label, accent) in section_meta.items():
             btn = QPushButton(label)
             btn.setCheckable(True)
             btn.setStyleSheet(
                 f"QPushButton:checked {{ background-color: {accent}; "
-                f"border-color: {accent}; }}"
+                f"border-color: {accent}; color: #ffffff; }}"
             )
             btn.clicked.connect(lambda checked, s=sec_name: self._switch_section(s))
             switcher_layout.addWidget(btn)
             self._section_buttons[sec_name] = btn
-        left_panel.addLayout(switcher_layout)
+        left_panel.addWidget(switcher_container)
 
         left_panel.addSpacing(8)
 
@@ -235,18 +238,24 @@ class ConcertMainWindow(QMainWindow):
         tx_layout.addWidget(self.tx_input)
         left_panel.addLayout(tx_layout)
 
-        btn_row = QHBoxLayout()
+        action_container = QWidget()
+        action_container.setObjectName("action-btn-group")
+        btn_row = QHBoxLayout(action_container)
+        btn_row.setSpacing(0)
+        btn_row.setContentsMargins(0, 0, 0, 0)
         self.confirm_btn = QPushButton("Confirm")
+        self.confirm_btn.setObjectName("action-confirm")
         self.confirm_btn.clicked.connect(
             lambda: self._on_confirm(self.tx_input.text().strip())
         )
         btn_row.addWidget(self.confirm_btn)
         self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.setObjectName("action-cancel")
         self.cancel_btn.clicked.connect(
             lambda: self._on_cancel(self.tx_input.text().strip())
         )
         btn_row.addWidget(self.cancel_btn)
-        left_panel.addLayout(btn_row)
+        left_panel.addWidget(action_container)
 
         left_panel.addSpacing(8)
 
@@ -286,11 +295,12 @@ class ConcertMainWindow(QMainWindow):
         legend_layout = QHBoxLayout()
         legend_layout.setSpacing(8)
         for color, text in [
-            ("#66bb6a", "Available"),
-            ("#29b6f6", "Yours"),
-            ("#ffa726", "Reserved"),
-            ("#ef5350", "Sold"),
-            ("#ab47bc", "Pending"),
+            ("#16a34a", "Available"),
+            ("#2563eb", "Yours"),
+            ("#ea580c", "Reserved"),
+            ("#dc2626", "Sold"),
+            ("#4338ca", "Purchased"),
+            ("#9333ea", "Pending"),
         ]:
             swatch = QLabel("   ")
             swatch.setStyleSheet(f"background-color: {color};")
@@ -338,6 +348,7 @@ class ConcertMainWindow(QMainWindow):
         # ── Signal-slot wiring ────────────────────────────────────────────
         self.connection_panel.connect_requested.connect(self._connect_client)
         self.connection_panel.disconnect_requested.connect(self._disconnect_client)
+        self.connection_panel.reset_database_requested.connect(self._reset_database)
         self._load_test_results.connect(self._on_load_test_results)
 
         # Default to VIP section
@@ -389,9 +400,9 @@ class ConcertMainWindow(QMainWindow):
 
         self.load_test_btn.setEnabled(False)
         self.status_bar.showMessage(
-            f"Running load test with {num_requests} requests..."
+            f"Running load test with {num_requests} requests over 60s..."
         )
-        self._log_event("LOCAL", f"Load test started: {num_requests} requests")
+        self._log_event("LOCAL", f"Load test started: {num_requests} requests, random spread over 60s")
 
         def _worker() -> None:
             gen = LoadGenerator(
@@ -399,7 +410,7 @@ class ConcertMainWindow(QMainWindow):
                 port=self.connected_port,
                 num_requests=num_requests,
                 conflicts=False,
-                delay=0,
+                timespan_seconds=60,
             )
             gen.run()
             self._load_test_results.emit(gen.summary())
@@ -458,6 +469,7 @@ class ConcertMainWindow(QMainWindow):
 
         # Clear state from any previous user session to prevent stale OWN_RESERVED highlights
         self.own_reserved_coords.clear()
+        self.own_sold_coords.clear()
         self.sessions.clear()
         self._click_inflight.clear()
 
@@ -511,6 +523,7 @@ class ConcertMainWindow(QMainWindow):
         self.sessions.clear()
         self._click_inflight.clear()
         self.own_reserved_coords.clear()
+        self.own_sold_coords.clear()
         self.section_snapshot = {
             "VIP": {"available": 0, "reserved": 0, "sold": 0},
             "PREFERENTIAL": {"available": 0, "reserved": 0, "sold": 0},
@@ -525,6 +538,28 @@ class ConcertMainWindow(QMainWindow):
         self.status_bar.showMessage("Disconnected")
         self._log_event("LOCAL", "Disconnected from server")
         self._render_all()
+
+    @Slot()
+    def _reset_database(self) -> None:
+        """Delete the SQLite database to reset all seat and session state."""
+        reply = QMessageBox.question(
+            self,
+            "Reset Database",
+            "This will delete all seat reservations, purchases, and sessions.\n"
+            "The server must be stopped before resetting.\n\nContinue?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        db_path = Path("data/concert_sync.db")
+        if db_path.exists():
+            db_path.unlink()
+            self.status_bar.showMessage("Database reset — all seats and sessions cleared")
+            self._log_event("LOCAL", "Database reset — all seats and sessions cleared")
+        else:
+            self.status_bar.showMessage("No database file found to reset")
 
     # ════════════════════════════════════════════════════════════════════════
     # Polling
@@ -575,6 +610,10 @@ class ConcertMainWindow(QMainWindow):
         if self.client is None:
             return
         response = self.client.query_seat_map()
+        seat_map = response.get("seat_map", {})
+        if seat_map:
+            self.seat_map_snapshot = seat_map
+            self.own_sold_coords = self._extract_own_sold_from_seat_map(seat_map)
         user_session = response.get("user_session", None)
         self._sync_user_session(user_session)
 
@@ -619,6 +658,7 @@ class ConcertMainWindow(QMainWindow):
             return
         self.section_snapshot = sections
         self.seat_map_snapshot = seat_map_payload
+        self.own_sold_coords = self._extract_own_sold_from_seat_map(seat_map_payload)
         self._sync_user_session(user_session)
         self._toolbar_status.setText(
             f"Connected to {self.connected_host}:{self.connected_port}"
@@ -678,6 +718,18 @@ class ConcertMainWindow(QMainWindow):
             )
 
         self.tx_input.setText(session_id)
+
+    def _extract_own_sold_from_seat_map(
+        self, seat_map: dict
+    ) -> Set[tuple[str, int, int]]:
+        """Scan seat_map grid for OWN_SOLD cells and return their coordinates."""
+        own_sold: Set[tuple[str, int, int]] = set()
+        for section_name, rows in seat_map.items():
+            for row_idx, row in enumerate(rows):
+                for col_idx, cell in enumerate(row):
+                    if cell == "OWN_SOLD":
+                        own_sold.add((section_name, row_idx, col_idx))
+        return own_sold
 
     @Slot(str)
     def _on_poll_error(self, error_msg: str) -> None:
@@ -1156,6 +1208,14 @@ class ConcertMainWindow(QMainWindow):
         for s_name, r, c in self.own_reserved_coords:
             own_by_section[s_name].add((r, c))
 
+        sold_by_section: Dict[str, Set[tuple[int, int]]] = {
+            "VIP": set(),
+            "PREFERENTIAL": set(),
+            "GENERAL": set(),
+        }
+        for s_name, r, c in self.own_sold_coords:
+            sold_by_section[s_name].add((r, c))
+
         # Build TTL overlay dict per section from active sessions
         ttl_by_section: Dict[str, Dict[tuple[int, int], int]] = {
             "VIP": {},
@@ -1180,26 +1240,27 @@ class ConcertMainWindow(QMainWindow):
                 pending_by_section.get(section_name, set()),
                 own_by_section.get(section_name, set()),
                 own_cell_ttl=ttl_by_section.get(section_name, {}),
+                own_sold_coords=sold_by_section.get(section_name, set()),
             )
 
     def _set_ttl_display(self, session: object | None) -> None:
         """Update the prominent TTL countdown label."""
         if session is None or session.state != "ACTIVE":
             self._ttl_display.setText("No active reservation")
-            self._ttl_display.setStyleSheet("color: #77767b;")
+            self._ttl_display.setStyleSheet("color: #86868b;")
             return
         remaining = session.ttl_remaining()
         if remaining <= 0:
             self._ttl_display.setText("Reservation expired")
-            self._ttl_display.setStyleSheet("color: #e01b24;")
+            self._ttl_display.setStyleSheet("color: #dc2626;")
             return
         mins, secs = divmod(remaining, 60)
         if remaining <= 30:
-            color = "#e01b24"
+            color = "#dc2626"
         elif remaining <= 120:
-            color = "#e66100"
+            color = "#ea580c"
         else:
-            color = "#2ec27e"
+            color = "#16a34a"
         self._ttl_display.setText(f"{mins:02d}:{secs:02d}")
         self._ttl_display.setStyleSheet(f"color: {color};")
 

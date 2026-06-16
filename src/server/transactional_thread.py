@@ -411,6 +411,9 @@ class TransactionalThread(threading.Thread):
                         self.server.seat_matrix.seats[section][row][
                             col
                         ] = SeatState.SOLD
+                        self.server.store.save_purchased_by(
+                            section.name, row, col, current_session.user_id
+                        )
 
                 current_session.state = ReservationStatus.CONFIRMED
                 confirmed_user_id = current_session.user_id
@@ -597,6 +600,12 @@ class TransactionalThread(threading.Thread):
                     "last_activity": session.last_activity,
                 }
 
+            my_purchased: set[tuple[str, int, int]] = set()
+            if requesting_user_id:
+                my_purchased = self.server.store.load_purchased_seats_for_user(
+                    requesting_user_id
+                )
+
             with self.server.mutex_manager.sections(list(Section)):
                 for section in Section:
                     rows = self.server.seat_matrix.seats[section]
@@ -609,6 +618,11 @@ class TransactionalThread(threading.Thread):
                                     serialized_row.append("OWN_RESERVED")
                                 else:
                                     serialized_row.append(seat.value)
+                            elif (
+                                seat == SeatState.SOLD
+                                and (section.name, row_idx, col_idx) in my_purchased
+                            ):
+                                serialized_row.append("OWN_SOLD")
                             else:
                                 serialized_row.append(seat.value)
                         serialized_rows.append(serialized_row)
