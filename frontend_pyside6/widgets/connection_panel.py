@@ -35,6 +35,7 @@ class ConnectionPanel(QWidget):
 
     connect_requested = Signal(str, int)  # host, port
     disconnect_requested = Signal()
+    reset_database_requested = Signal()
 
     def __init__(self) -> None:
         """Initialize connection panel with user ID, host/port, and connect button."""
@@ -89,6 +90,12 @@ class ConnectionPanel(QWidget):
         action_layout.addWidget(self.connect_btn)
         layout.addLayout(action_layout)
 
+        # ── Reset Database button ────────────────────────────────────────────
+        self.reset_db_btn = QPushButton("Reset Database")
+        self.reset_db_btn.setObjectName("reset-db-btn")
+        self.reset_db_btn.clicked.connect(self.reset_database_requested.emit)
+        layout.addWidget(self.reset_db_btn)
+
     def _on_connect_btn_clicked(self) -> None:
         """Handle Connect/Disconnect button click.
 
@@ -120,6 +127,7 @@ class ConnectionPanel(QWidget):
             self.user_id_input.setEnabled(False)
             self.host_input.setEnabled(False)
             self.port_input.setEnabled(False)
+            self.reset_db_btn.setEnabled(False)
         else:
             self.status_label.setText("Disconnected")
             self.status_label.setObjectName("status-disconnected")
@@ -127,6 +135,7 @@ class ConnectionPanel(QWidget):
             self.user_id_input.setEnabled(True)
             self.host_input.setEnabled(True)
             self.port_input.setEnabled(True)
+            self.reset_db_btn.setEnabled(True)
 
     def set_session_id(self, session_id: str) -> None:
         """Persist the session ID to QSettings for cross-session continuity.

@@ -348,6 +348,7 @@ class ConcertMainWindow(QMainWindow):
         # ── Signal-slot wiring ────────────────────────────────────────────
         self.connection_panel.connect_requested.connect(self._connect_client)
         self.connection_panel.disconnect_requested.connect(self._disconnect_client)
+        self.connection_panel.reset_database_requested.connect(self._reset_database)
         self._load_test_results.connect(self._on_load_test_results)
 
         # Default to VIP section
@@ -399,9 +400,9 @@ class ConcertMainWindow(QMainWindow):
 
         self.load_test_btn.setEnabled(False)
         self.status_bar.showMessage(
-            f"Running load test with {num_requests} requests..."
+            f"Running load test with {num_requests} requests over 60s..."
         )
-        self._log_event("LOCAL", f"Load test started: {num_requests} requests")
+        self._log_event("LOCAL", f"Load test started: {num_requests} requests, random spread over 60s")
 
         def _worker() -> None:
             gen = LoadGenerator(
@@ -409,7 +410,7 @@ class ConcertMainWindow(QMainWindow):
                 port=self.connected_port,
                 num_requests=num_requests,
                 conflicts=False,
-                delay=0,
+                timespan_seconds=60,
             )
             gen.run()
             self._load_test_results.emit(gen.summary())
@@ -537,6 +538,28 @@ class ConcertMainWindow(QMainWindow):
         self.status_bar.showMessage("Disconnected")
         self._log_event("LOCAL", "Disconnected from server")
         self._render_all()
+
+    @Slot()
+    def _reset_database(self) -> None:
+        """Delete the SQLite database to reset all seat and session state."""
+        reply = QMessageBox.question(
+            self,
+            "Reset Database",
+            "This will delete all seat reservations, purchases, and sessions.\n"
+            "The server must be stopped before resetting.\n\nContinue?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        db_path = Path("data/concert_sync.db")
+        if db_path.exists():
+            db_path.unlink()
+            self.status_bar.showMessage("Database reset — all seats and sessions cleared")
+            self._log_event("LOCAL", "Database reset — all seats and sessions cleared")
+        else:
+            self.status_bar.showMessage("No database file found to reset")
 
     # ════════════════════════════════════════════════════════════════════════
     # Polling
