@@ -59,7 +59,9 @@ class MonitorThread(threading.Thread):
                 if seat == SeatState.AVAILABLE:
                     available_count += 1
         was_full = self.server.notification_manager.is_section_full(section_name)
-        self.server.notification_manager.set_section_full(section_name, available_count == 0)
+        self.server.notification_manager.set_section_full(
+            section_name, available_count == 0
+        )
         if was_full and available_count > 0:
             message = f"[NOTIFICACIÓN]\nHay nuevos asientos disponibles en la zona {section_name}."
             self.server.notification_manager.append_to_all(
@@ -97,6 +99,7 @@ class MonitorThread(threading.Thread):
 
             self.server.session_manager.remove(session.user_id)
             self.server.store.delete_session(session.user_id)
+            self.server.store.save_all_seats(self.server.seat_matrix)
 
             for section, count in released_counts.items():
                 if count > 0:
@@ -105,8 +108,6 @@ class MonitorThread(threading.Thread):
             for section in ordered_sections:
                 if released_counts[section] > 0:
                     self._notify_availability_if_needed(section)
-
-        self.server.store.save_all_seats(self.server.seat_matrix)
 
         self.server.notification_manager.append(
             session.user_id,
